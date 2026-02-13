@@ -47,6 +47,52 @@ exports.createDeliveryBoy = async (req, res) => {
     }
 };
 
+exports.updateDeliveryBoy = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // Prepare update payload
+    const updateData = { ...req.body };
+
+    // Ensure role and tenantId are not accidentally changed
+    delete updateData.role;
+    delete updateData.tenantId;
+
+    // Find and update user safely
+    const user = await User.findOneAndUpdate(
+      { _id: id, tenantId: req.user.tenantId, role: { $in: ["USER", "user"] } },
+      updateData,
+      { new: true } // return updated document
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery boy not found for this tenant",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Delivery boy updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("UPDATE DELIVERY BOY ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 /*
 ========================================
 ADMIN: Get All Delivery Boys
