@@ -42,6 +42,10 @@ const deliveryRecordSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );
@@ -55,5 +59,6 @@ deliveryRecordSchema.index(
 deliveryRecordSchema.index({ tenantId: 1 });
 deliveryRecordSchema.index({ customerId: 1, date: 1 });
 deliveryRecordSchema.index({ tenantId: 1, date: 1 });
+deliveryRecordSchema.index({ tenantId: 1, customerId: 1, date: 1 });
 
 module.exports = mongoose.model("DeliveryRecord", deliveryRecordSchema);

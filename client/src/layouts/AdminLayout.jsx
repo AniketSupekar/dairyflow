@@ -19,8 +19,8 @@ const AdminLayout = () => {
           <Link to="/admin/customers">Customers</Link>
           <Link to="/admin/delivery-boys">Delivery Boys</Link>
           <Link to="/admin/deliveries">Deliveries</Link>
-          <Link to="/admin/payments">Payments</Link>
           <Link to="/admin/billing">Billing</Link>
+          <Link to="/admin/payments">Payments</Link>
         </nav>
 
         <button

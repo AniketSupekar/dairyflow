@@ -10,6 +10,9 @@ import ProductList from "../features/products/ProductList";
 import LaneList from "../features/lanes/LaneList";
 import CustomerPage from "../features/customers/CustomerPage";
 import DeliveryBoyPage from "../features/deliveryBoys/DeliveryBoyPage";
+import DeliveryPage from "../features/deliveries/DeliveryPage";
+import BillingPage from "../features/billing/BillingPage";
+import PaymentPage from "../features/payments/PaymentPage";
 
 
 const Dashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
@@ -67,6 +70,9 @@ const AppRouter = () => {
           <Route path="lanes" element={<LaneList />} />
           <Route path="customers" element={<CustomerPage />} />
           <Route path="delivery-boys" element={<DeliveryBoyPage />} />
+          <Route path="deliveries" element={<DeliveryPage />} />
+          <Route path="/admin/billing" element={<BillingPage />} />
+          <Route path="payments" element={<PaymentPage />} />
         </Route>
 
         {/* USER ROUTES */}

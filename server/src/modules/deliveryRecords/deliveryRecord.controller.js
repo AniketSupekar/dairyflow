@@ -2,90 +2,131 @@ const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 const Product = require("../products/product.model");
 const { successResponse } = require("../../utils/response.util");
 
-exports.createDailyDeliveries = async (req, res) => {
+exports.upsertDeliveryRecord = async (req, res) => {
   try {
-    const { date, entries } = req.body;
-    const tenantId = req.user.tenantId; // from auth middleware
+    const { customerId, productId, quantity, rate, status, date } = req.body;
+    const tenantId = req.user.tenantId;
 
-    const deliveryDate = new Date(date);
-
-    for (const entry of entries) {
-      const product = await Product.findOne({
-        _id: entry.productId,
-        tenantId,
+    if (!customerId || !productId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
       });
-
-      if (!product) {
-        return res.status(400).json({ message: "Invalid product" });
-      }
-
-      try {
-        await DeliveryRecord.create({
-          tenantId,
-          customerId: entry.customerId,
-          productId: entry.productId,
-          quantity: entry.quantity,
-          rate: product.rate,
-          status: entry.status,
-          date: deliveryDate,
-        });
-      } catch (err) {
-        if (err.code === 11000) {
-          return res.status(400).json({
-            message: "Duplicate delivery record detected",
-          });
-        }
-        throw err;
-      }
     }
 
-    res.json({ message: "Deliveries recorded successfully" });
+    // ✅ Normalize to UTC midnight
+    const normalizedDate = new Date(date);
+    normalizedDate.setUTCHours(0, 0, 0, 0);
+
+    const record = await DeliveryRecord.findOneAndUpdate(
+      { tenantId, customerId, productId, date: normalizedDate },
+      {
+        tenantId,
+        customerId,
+        productId,
+        quantity,
+        rate,
+        status,
+        date: normalizedDate,
+        isActive: true,
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({ success: true, data: record });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error("UPSERT DELIVERY ERROR:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-exports.getDeliveryByDate = async (req, res) => {
-  try {
-    const tenantId = req.tenantId;
-    const { laneId, date } = req.query;
 
-    if (!laneId || !date) {
+exports.getDeliveriesByDate = async (req, res) => {
+  try {
+    const { date, laneId } = req.query;
+    const tenantId = req.user.tenantId;
+
+    if (!date || !laneId) {
       return res.status(400).json({
         success: false,
-        message: "laneId and date are required",
+        message: "Date and laneId required",
       });
     }
 
     const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
+    start.setUTCHours(0, 0, 0, 0);
 
     const end = new Date(date);
-    end.setHours(23, 59, 59, 999);
+    end.setUTCHours(23, 59, 59, 999);
 
-    const deliveries = await DeliveryRecord.find({
+    const records = await DeliveryRecord.find({
       tenantId,
       date: { $gte: start, $lte: end },
+      isActive: true,
     })
       .populate({
         path: "customerId",
-        match: { laneId: new mongoose.Types.ObjectId(laneId) },
+        match: { laneId },
         select: "name laneId",
       })
       .populate("productId", "name rate");
 
-    const filtered = deliveries.filter(d => d.customerId !== null);
+    // Remove records whose customer didn't match lane
+    const filtered = records.filter(r => r.customerId);
 
-    res.json({
-      success: true,
-      data: filtered,
-    });
-
+    res.json({ success: true, data: filtered });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("GET DELIVERY ERROR:", error);
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.updateDeliveryRecord = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const record = await DeliveryRecord.findOneAndUpdate(
+      { _id: id, tenantId },
+      req.body,
+      { new: true }
+    );
+
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery record not found",
+      });
+    }
+
+    res.json({ success: true, data: record });
+  } catch (error) {
+    console.error("UPDATE DELIVERY ERROR:", error);
+    res.status(500).json({ success: false });
+  }
+};
+
+exports.deleteDeliveryRecord = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user.tenantId;
+
+    const record = await DeliveryRecord.findOneAndUpdate(
+      { _id: id, tenantId },
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery record not found",
+      });
+    }
+
+    res.json({ success: true, message: "Delivery deleted" });
+  } catch (error) {
+    console.error("DELETE DELIVERY ERROR:", error);
+    res.status(500).json({ success: false });
   }
 };
