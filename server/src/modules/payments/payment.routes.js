@@ -7,5 +7,6 @@ router.use(authMiddleware);
 
 router.post("/", paymentController.createPayment);
 router.get("/:customerId", paymentController.getPaymentsByCustomer);
+router.delete("/:id", paymentController.deletePayment);
 
 module.exports = router;

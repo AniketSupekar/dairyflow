@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
+import { AuthContext } from "../../context/AuthContext";
 import { getLanes } from "../../api/lane.api";
 import { getProducts } from "../../api/product.api";
 import { getCustomersByLane } from "../../api/customer.api";
@@ -9,15 +10,18 @@ import {
 } from "../../api/deliveryRecord.api";
 
 const DeliveryPage = () => {
+  const { user } = useContext(AuthContext);
+
+  const isAdmin = user?.role?.toLowerCase() === "admin";
+
+  const today = new Date().toISOString().split("T")[0];
+
   const [lanes, setLanes] = useState([]);
   const [products, setProducts] = useState([]);
   const [selectedLane, setSelectedLane] = useState("");
-  const [date, setDate] = useState(
-    new Date().toISOString().split("T")[0]
-  );
+  const [date, setDate] = useState(today);
 
   const [customers, setCustomers] = useState([]);
-  const [deliveryMap, setDeliveryMap] = useState({});
 
   useEffect(() => {
     fetchInitial();
@@ -30,14 +34,30 @@ const DeliveryPage = () => {
     }
   }, [selectedLane, date]);
 
-  const fetchInitial = async () => {
-    const laneRes = await getLanes();
-    const productRes = await getProducts();
-    setLanes(laneRes.data.data);
-    setProducts(productRes.data.data);
-  };
+const fetchInitial = async () => {
+  const productRes = await getProducts();
+  setProducts(productRes.data.data);
 
-  const fetchCustomers = async () => {
+  if (isAdmin) {
+    const laneRes = await getLanes();
+    setLanes(laneRes.data.data);
+  } else {
+    const assigned = user.assignedLanes || [];
+
+    const formatted = assigned.map((laneId) => ({
+      _id: laneId,
+      name: "Assigned Lane",
+    }));
+
+    setLanes(formatted);
+
+    if (formatted.length > 0) {
+      setSelectedLane(formatted[0]._id);
+    }
+  }
+};
+
+const fetchCustomers = async () => {
     const res = await getCustomersByLane(selectedLane);
 
     const formatted = res.data.data.map((cust) => ({
@@ -58,7 +78,6 @@ const DeliveryPage = () => {
 
   const fetchDeliveries = async () => {
     const res = await getDeliveriesByDateAndLane(date, selectedLane);
-
     const records = res.data.data;
 
     setCustomers((prev) =>
@@ -179,25 +198,43 @@ const DeliveryPage = () => {
       <h1 className="text-2xl font-bold">Delivery</h1>
 
       <div className="flex gap-4 my-4">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="border p-2"
-        />
+        {isAdmin && (
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="border p-2"
+          />
+        )}
 
-        <select
-          value={selectedLane}
-          onChange={(e) => setSelectedLane(e.target.value)}
-          className="border p-2"
-        >
-          <option value="">Select Lane</option>
-          {lanes.map((lane) => (
-            <option key={lane._id} value={lane._id}>
-              {lane.name}
-            </option>
-          ))}
-        </select>
+        {isAdmin && (
+          <select
+            value={selectedLane}
+            onChange={(e) => setSelectedLane(e.target.value)}
+            className="border p-2"
+          >
+            <option value="">Select Lane</option>
+            {lanes.map((lane) => (
+              <option key={lane._id} value={lane._id}>
+                {lane.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {!isAdmin && lanes.length > 1 && (
+          <select
+            value={selectedLane}
+            onChange={(e) => setSelectedLane(e.target.value)}
+            className="border p-2"
+          >
+            {lanes.map((lane) => (
+              <option key={lane._id} value={lane._id}>
+                {lane.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {customers.map((cust) => (

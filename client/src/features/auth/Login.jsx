@@ -12,16 +12,14 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await api.post("/auth/login", {
-        phone,
-        password,
-      });
-
+      const res = await api.post("/auth/login", { phone, password });
       const token = res.data.data.token;
-      login(token);
 
-      const decoded = JSON.parse(atob(token.split(".")[1]));
-      if (decoded.role === "admin") {
+      // Update context and get the decoded user
+      const userData = login(token); // We'll modify login to return decoded user
+
+      // Redirect based on role from context
+      if (userData.role === "admin") {
         navigate("/admin");
       } else {
         navigate("/user");

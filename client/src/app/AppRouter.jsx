@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useContext } from "react";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { useContext, useEffect } from "react";
 import { AuthContext } from "../context/AuthContext";
 
 import Login from "../features/auth/Login";
@@ -14,82 +14,82 @@ import DeliveryPage from "../features/deliveries/DeliveryPage";
 import BillingPage from "../features/billing/BillingPage";
 import PaymentPage from "../features/payments/PaymentPage";
 
-
-const Dashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
-const UserHome = () => <h1 className="p-4">User Panel</h1>;
-
-const AppRouter = () => {
+// ================= HomeRedirect =================
+const HomeRedirect = () => {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
 
+  useEffect(() => {
+    if (!user) {
+      navigate("/login", { replace: true });
+    } else if (user.role?.toLowerCase() === "admin") {
+      navigate("/admin", { replace: true });
+    } else {
+      navigate("/user", { replace: true });
+    }
+  }, [user, navigate]);
+
+  return null;
+};
+
+// ================= Dashboards =================
+const AdminDashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
+const UserDashboard = () => <h1 className="p-4">Delivery Screen</h1>;
+
+// ================= Router Wrapper =================
+const RouterContent = () => {
+  return (
+    <Routes>
+      {/* Root */}
+      <Route path="/" element={<HomeRedirect />} />
+
+      {/* Login */}
+      <Route path="/login" element={<Login />} />
+
+      {/* ADMIN ROUTES */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute role="admin">
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<AdminDashboard />} />
+        <Route path="products" element={<ProductList />} />
+        <Route path="lanes" element={<LaneList />} />
+        <Route path="customers" element={<CustomerPage />} />
+        <Route path="delivery-boys" element={<DeliveryBoyPage />} />
+        <Route path="deliveries" element={<DeliveryPage />} />
+        <Route path="billing" element={<BillingPage />} />
+        <Route path="payments" element={<PaymentPage />} />
+      </Route>
+
+      {/* USER ROUTES */}
+      {/* USER ROUTES */}
+      <Route
+        path="/user"
+        element={
+          <ProtectedRoute role="user">
+            <UserLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<DeliveryPage />} />
+      </Route>
+
+
+      {/* Fallback */}
+      <Route path="*" element={<HomeRedirect />} />
+    </Routes>
+  );
+};
+
+// ================= AppRouter =================
+const AppRouter = () => {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Root Redirect */}
-        <Route
-          path="/"
-          element={
-            user ? (
-              user.role === "admin" ? (
-                <Navigate to="/admin" />
-              ) : (
-                <Navigate to="/user" />
-              )
-            ) : (
-              <Navigate to="/login" />
-            )
-          }
-        />
-
-        {/* Login */}
-        <Route
-          path="/login"
-          element={
-            user ? (
-              user.role === "admin" ? (
-                <Navigate to="/admin" />
-              ) : (
-                <Navigate to="/user" />
-              )
-            ) : (
-              <Login />
-            )
-          }
-        />
-
-        {/* ADMIN ROUTES */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute role="admin">
-              <AdminLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="products" element={<ProductList />} />
-          <Route path="lanes" element={<LaneList />} />
-          <Route path="customers" element={<CustomerPage />} />
-          <Route path="delivery-boys" element={<DeliveryBoyPage />} />
-          <Route path="deliveries" element={<DeliveryPage />} />
-          <Route path="/admin/billing" element={<BillingPage />} />
-          <Route path="payments" element={<PaymentPage />} />
-        </Route>
-
-        {/* USER ROUTES */}
-        <Route
-          path="/user"
-          element={
-            <ProtectedRoute role="user">
-              <UserLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<UserHome />} />
-        </Route>
-
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
+      <RouterContent />
     </BrowserRouter>
   );
 };

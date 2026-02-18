@@ -8,9 +8,7 @@ const { successResponse, errorResponse } = require("../../utils/response.util");
 const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
 
-/**
- * 1️⃣ Generate Bill (Professional Version)
- */
+
 exports.generateBill = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -35,22 +33,23 @@ exports.generateBill = async (req, res) => {
       return errorResponse(res, "Customer not found", 404);
     }
 
-    // Duplicate check
-    const existingBill = await Bill.findOne({
+    // ✅ Prevent overlapping bills
+    const overlappingBill = await Bill.findOne({
       tenantId,
       customerId,
-      fromDate: start,
-      toDate: end,
+      fromDate: { $lte: end },
+      toDate: { $gte: start },
     });
 
-    if (existingBill) {
-      return successResponse(res, "Bill already exists", existingBill);
+    if (overlappingBill) {
+      return errorResponse(res, "Overlapping bill period exists", 400);
     }
 
-    // 🔥 Opening from unpaid bills only
+    // ✅ Opening balance ONLY from previous bills
     const previousBills = await Bill.find({
       tenantId,
       customerId,
+      toDate: { $lt: start },
       status: { $in: ["UNPAID", "PARTIAL"] },
     });
 
@@ -58,12 +57,13 @@ exports.generateBill = async (req, res) => {
       return sum + (bill.totalAmount - bill.amountPaid);
     }, 0);
 
-    // Fetch deliveries (snapshot)
+    // ✅ Fetch only active delivered deliveries
     const deliveries = await DeliveryRecord.find({
       tenantId,
       customerId,
       date: { $gte: start, $lte: end },
       status: "DELIVERED",
+      isActive: true,
     }).populate("productId");
 
     const deliveryItems = deliveries.map((d) => ({
@@ -78,6 +78,11 @@ exports.generateBill = async (req, res) => {
       (sum, item) => sum + item.amount,
       0
     );
+
+    if (openingBalance === 0 && deliveryTotal === 0) {
+      return errorResponse(res, "No deliveries found for this period", 400);
+    }
+
 
     const totalAmount = openingBalance + deliveryTotal;
 
@@ -98,11 +103,15 @@ exports.generateBill = async (req, res) => {
     return successResponse(res, "Bill generated successfully", bill);
   } catch (err) {
     console.error(err);
+
+    // ✅ Handle duplicate index error safely
+    if (err.code === 11000) {
+      return errorResponse(res, "Bill already exists for this period", 400);
+    }
+
     return errorResponse(res, "Server error", 500);
   }
 };
-
-
 /**
  * 2️⃣ Download Bill PDF (Updated)
  */

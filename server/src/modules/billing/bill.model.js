@@ -58,5 +58,9 @@ const billSchema = new mongoose.Schema(
 );
 
 billSchema.index({ tenantId: 1, customerId: 1 });
+billSchema.index(
+  { tenantId: 1, customerId: 1, fromDate: 1, toDate: 1 },
+  { unique: true }
+);
 
 module.exports = mongoose.model("Bill", billSchema);

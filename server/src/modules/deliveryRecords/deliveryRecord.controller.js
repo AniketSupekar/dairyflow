@@ -2,10 +2,24 @@ const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 const Product = require("../products/product.model");
 const { successResponse } = require("../../utils/response.util");
 
+const Customer = require("../customers/customer.model");
+const Lane = require("../lanes/lane.model");
+const Bill = require("../billing/bill.model");
+
+const isToday = (date) => {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const compare = new Date(date);
+  compare.setUTCHours(0, 0, 0, 0);
+
+  return today.getTime() === compare.getTime();
+};
+
 exports.upsertDeliveryRecord = async (req, res) => {
   try {
-    const { customerId, productId, quantity, rate, status, date } = req.body;
-    const tenantId = req.user.tenantId;
+    const { customerId, productId, quantity, status, date } = req.body;
+    const { tenantId, role, assignedLanes } = req.user;
 
     if (!customerId || !productId || !date) {
       return res.status(400).json({
@@ -14,9 +28,91 @@ exports.upsertDeliveryRecord = async (req, res) => {
       });
     }
 
-    // ✅ Normalize to UTC midnight
+    if (!quantity || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Quantity must be greater than 0",
+      });
+    }
+
     const normalizedDate = new Date(date);
     normalizedDate.setUTCHours(0, 0, 0, 0);
+
+    // 🔒 USER can only create/edit same-day entry
+    if (role === "USER" && !isToday(normalizedDate)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only enter or edit today's delivery",
+      });
+    }
+
+    // 🔒 Check customer active
+    const customer = await Customer.findOne({
+      _id: customerId,
+      tenantId,
+    });
+
+    if (!customer || !customer.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer is inactive or not found",
+      });
+    }
+
+    // 🔒 USER lane restriction
+    if (role === "USER") {
+      const laneAllowed = assignedLanes.some(
+        (laneId) => laneId.toString() === customer.laneId.toString()
+      );
+
+      if (!laneAllowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed to access this lane",
+        });
+      }
+    }
+
+    // 🔒 Check lane active
+    const lane = await Lane.findOne({
+      _id: customer.laneId,
+      tenantId,
+    });
+
+    if (!lane || !lane.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer lane is inactive",
+      });
+    }
+
+    // 🔒 Check bill lock
+    const billExists = await Bill.exists({
+      tenantId,
+      customerId,
+      fromDate: { $lte: normalizedDate },
+      toDate: { $gte: normalizedDate },
+    });
+
+    if (billExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot modify delivery after bill generated",
+      });
+    }
+
+    // 🔒 Product validation
+    const product = await Product.findOne({
+      _id: productId,
+      tenantId,
+    });
+
+    if (!product || !product.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or inactive product",
+      });
+    }
 
     const record = await DeliveryRecord.findOneAndUpdate(
       { tenantId, customerId, productId, date: normalizedDate },
@@ -25,12 +121,12 @@ exports.upsertDeliveryRecord = async (req, res) => {
         customerId,
         productId,
         quantity,
-        rate,
+        rate: product.rate,
         status,
         date: normalizedDate,
         isActive: true,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, runValidators: true }
     );
 
     res.json({ success: true, data: record });
@@ -40,17 +136,30 @@ exports.upsertDeliveryRecord = async (req, res) => {
   }
 };
 
-
 exports.getDeliveriesByDate = async (req, res) => {
   try {
     const { date, laneId } = req.query;
-    const tenantId = req.user.tenantId;
+    const { tenantId, role, assignedLanes } = req.user;
 
     if (!date || !laneId) {
       return res.status(400).json({
         success: false,
         message: "Date and laneId required",
       });
+    }
+
+    // 🔒 USER lane restriction
+    if (role === "USER") {
+      const allowed = assignedLanes.some(
+        (id) => id.toString() === laneId.toString()
+      );
+
+      if (!allowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed to access this lane",
+        });
+      }
     }
 
     const start = new Date(date);
@@ -71,8 +180,7 @@ exports.getDeliveriesByDate = async (req, res) => {
       })
       .populate("productId", "name rate");
 
-    // Remove records whose customer didn't match lane
-    const filtered = records.filter(r => r.customerId);
+    const filtered = records.filter((r) => r.customerId);
 
     res.json({ success: true, data: filtered });
   } catch (error) {
@@ -84,22 +192,57 @@ exports.getDeliveriesByDate = async (req, res) => {
 exports.updateDeliveryRecord = async (req, res) => {
   try {
     const { id } = req.params;
-    const tenantId = req.user.tenantId;
+    const { tenantId, role, assignedLanes } = req.user;
 
-    const record = await DeliveryRecord.findOneAndUpdate(
-      { _id: id, tenantId },
-      req.body,
-      { new: true }
-    );
+    const existing = await DeliveryRecord.findOne({ _id: id, tenantId });
 
-    if (!record) {
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: "Delivery record not found",
       });
     }
 
-    res.json({ success: true, data: record });
+    // 🔒 USER lane restriction
+    if (role === "USER") {
+      const customer = await Customer.findOne({
+        _id: existing.customerId,
+        tenantId,
+      });
+
+      const allowed = assignedLanes.some(
+        (laneId) => laneId.toString() === customer.laneId.toString()
+      );
+
+      if (!allowed || !isToday(existing.date)) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed to edit this record",
+        });
+      }
+    }
+
+    const billExists = await Bill.exists({
+      tenantId,
+      customerId: existing.customerId,
+      fromDate: { $lte: existing.date },
+      toDate: { $gte: existing.date },
+    });
+
+    if (billExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit delivery after bill generated",
+      });
+    }
+
+    const updated = await DeliveryRecord.findOneAndUpdate(
+      { _id: id, tenantId },
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    res.json({ success: true, data: updated });
   } catch (error) {
     console.error("UPDATE DELIVERY ERROR:", error);
     res.status(500).json({ success: false });
@@ -109,20 +252,52 @@ exports.updateDeliveryRecord = async (req, res) => {
 exports.deleteDeliveryRecord = async (req, res) => {
   try {
     const { id } = req.params;
-    const tenantId = req.user.tenantId;
+    const { tenantId, role, assignedLanes } = req.user;
 
-    const record = await DeliveryRecord.findOneAndUpdate(
-      { _id: id, tenantId },
-      { isActive: false },
-      { new: true }
-    );
+    const existing = await DeliveryRecord.findOne({ _id: id, tenantId });
 
-    if (!record) {
+    if (!existing) {
       return res.status(404).json({
         success: false,
         message: "Delivery record not found",
       });
     }
+
+    // 🔒 USER lane restriction
+    if (role === "USER") {
+      const customer = await Customer.findOne({
+        _id: existing.customerId,
+        tenantId,
+      });
+
+      const allowed = assignedLanes.some(
+        (laneId) => laneId.toString() === customer.laneId.toString()
+      );
+
+      if (!allowed || !isToday(existing.date)) {
+        return res.status(403).json({
+          success: false,
+          message: "Not allowed to delete this record",
+        });
+      }
+    }
+
+    const billExists = await Bill.exists({
+      tenantId,
+      customerId: existing.customerId,
+      fromDate: { $lte: existing.date },
+      toDate: { $gte: existing.date },
+    });
+
+    if (billExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete delivery after bill generated",
+      });
+    }
+
+    existing.isActive = false;
+    await existing.save();
 
     res.json({ success: true, message: "Delivery deleted" });
   } catch (error) {

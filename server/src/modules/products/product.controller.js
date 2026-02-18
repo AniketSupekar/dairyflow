@@ -1,4 +1,5 @@
 const Product = require("./product.model");
+const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 
 // Create Product
 exports.createProduct = async (req, res, next) => {
@@ -17,6 +18,14 @@ exports.createProduct = async (req, res, next) => {
       data: product,
     });
   } catch (error) {
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Product name already exists",
+      });
+    }
+
     next(error);
   }
 };
@@ -47,7 +56,7 @@ exports.updateProduct = async (req, res, next) => {
         tenantId: req.user.tenantId,
       },
       req.body,
-      { new: true }
+      { new: true, runValidators: true }
     );
 
     res.json({
@@ -55,6 +64,14 @@ exports.updateProduct = async (req, res, next) => {
       data: product,
     });
   } catch (error) {
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Product name already exists",
+      });
+    }
+
     next(error);
   }
 };
@@ -62,11 +79,23 @@ exports.updateProduct = async (req, res, next) => {
 // Soft Delete Product
 exports.deleteProduct = async (req, res, next) => {
   try {
+    const tenantId = req.user.tenantId;
+    const productId = req.params.id;
+
+    const deliveryExists = await DeliveryRecord.exists({
+      tenantId,
+      productId,
+    });
+
+    if (deliveryExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete product used in deliveries",
+      });
+    }
+
     await Product.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        tenantId: req.user.tenantId,
-      },
+      { _id: productId, tenantId },
       { isActive: false }
     );
 

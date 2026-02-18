@@ -9,7 +9,7 @@ exports.createLane = async (req, res) => {
 
     const lane = await Lane.create({
       tenantId: req.user.tenantId,
-      name,
+      name: name.trim(),
       description,
     });
 
@@ -65,6 +65,13 @@ exports.updateLane = async (req, res) => {
       { new: true }
     );
 
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Lane name already exists",
+      });
+    }
+
     if (!lane) {
       return res.status(404).json({
         success: false,
@@ -92,14 +99,11 @@ exports.deleteLane = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const lane = await Lane.findOneAndUpdate(
-      {
-        _id: id,
-        tenantId: req.user.tenantId,
-      },
-      { isActive: false },
-      { new: true }
-    );
+    // Check if lane exists
+    const lane = await Lane.findOne({
+      _id: id,
+      tenantId: req.user.tenantId,
+    });
 
     if (!lane) {
       return res.status(404).json({
@@ -107,6 +111,22 @@ exports.deleteLane = async (req, res) => {
         message: "Lane not found",
       });
     }
+
+    // Check if customers exist in this lane
+    const customerExists = await Customer.exists({
+      tenantId: req.user.tenantId,
+      laneId: id,
+    });
+
+    if (customerExists) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete lane with existing customers",
+      });
+    }
+
+    lane.isActive = false;
+    await lane.save();
 
     res.json({
       success: true,

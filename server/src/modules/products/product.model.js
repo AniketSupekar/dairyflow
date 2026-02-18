@@ -22,6 +22,7 @@ const productSchema = new mongoose.Schema(
     rate: {
       type: Number,
       required: true,
+      min: [0.01, "Rate must be greater than 0"],
     },
 
     isActive: {

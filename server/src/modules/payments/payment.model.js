@@ -18,6 +18,7 @@ const paymentSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
+      min: 0.01,
     },
 
     paymentMode: {
@@ -34,6 +35,11 @@ const paymentSchema = new mongoose.Schema(
     note: {
       type: String,
     },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+    }
   },
   { timestamps: true }
 );
