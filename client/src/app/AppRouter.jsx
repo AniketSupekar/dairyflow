@@ -13,6 +13,7 @@ import DeliveryBoyPage from "../features/deliveryBoys/DeliveryBoyPage";
 import DeliveryPage from "../features/deliveries/DeliveryPage";
 import BillingPage from "../features/billing/BillingPage";
 import PaymentPage from "../features/payments/PaymentPage";
+import AdminDashboard from "../features/dashboard/AdminDashboard";
 
 // ================= HomeRedirect =================
 const HomeRedirect = () => {
@@ -33,7 +34,7 @@ const HomeRedirect = () => {
 };
 
 // ================= Dashboards =================
-const AdminDashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
+// const AdminDashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
 const UserDashboard = () => <h1 className="p-4">Delivery Screen</h1>;
 
 // ================= Router Wrapper =================
@@ -55,6 +56,7 @@ const RouterContent = () => {
           </ProtectedRoute>
         }
       >
+        <Route path="/admin" element={<AdminDashboard />} />
         <Route index element={<AdminDashboard />} />
         <Route path="products" element={<ProductList />} />
         <Route path="lanes" element={<LaneList />} />

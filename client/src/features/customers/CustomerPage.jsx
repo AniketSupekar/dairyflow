@@ -6,6 +6,7 @@ import {
   deleteCustomer,
 } from "../../api/customer.api";
 import CustomerForm from "./CustomerForm";
+import { Pencil, Trash2, Plus } from "lucide-react";
 
 const CustomerPage = () => {
   const [lanes, setLanes] = useState([]);
@@ -14,6 +15,7 @@ const CustomerPage = () => {
   const [customers, setCustomers] = useState([]);
   const [editing, setEditing] = useState(null);
   const [refresh, setRefresh] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -28,7 +30,6 @@ const CustomerPage = () => {
   const fetchInitialData = async () => {
     const laneRes = await getLanes();
     const productRes = await getProducts();
-
     setLanes(laneRes.data.data);
     setProducts(productRes.data.data);
   };
@@ -44,74 +45,148 @@ const CustomerPage = () => {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Customers</h1>
+    <div className="max-w-6xl mx-auto px-4 space-y-6">
+
+      {/* Page Header */}
+      <div>
+        <h1 className="text-xl md:text-2xl font-semibold text-gray-900">
+          Customers
+        </h1>
+        <p className="text-sm text-gray-500">
+          Manage customers lane-wise
+        </p>
+      </div>
 
       {/* Lane Selector */}
-      <select
-        className="border p-2 mb-4"
-        value={selectedLane}
-        onChange={(e) => setSelectedLane(e.target.value)}
-      >
-        <option value="">Select Lane</option>
-        {lanes.map((lane) => (
-          <option key={lane._id} value={lane._id}>
-            {lane.name}
-          </option>
-        ))}
-      </select>
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <label className="block text-sm text-gray-600 mb-2">
+          Select Lane
+        </label>
+        <select
+          className="w-full md:w-72 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:ring-1 focus:ring-gray-900 outline-none"
+          value={selectedLane}
+          onChange={(e) => {
+            setSelectedLane(e.target.value);
+            setShowForm(false);
+            setEditing(null);
+          }}
+        >
+          <option value="">Select Lane</option>
+          {lanes.map((lane) => (
+            <option key={lane._id} value={lane._id}>
+              {lane.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
+      {/* Customers Section */}
       {selectedLane && (
-        <>
-          <CustomerForm
-            products={products}
-            laneId={selectedLane}
-            editing={editing}
-            setEditing={setEditing}
-            refresh={refresh}
-            setRefresh={setRefresh}
-          />
+        <div className="space-y-6">
 
-          <table className="w-full mt-6 border">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border p-2">Name</th>
-                <th className="border p-2">Phone</th>
-                <th className="border p-2">Products</th>
-                <th className="border p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+          {/* Section Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">
+                Customers
+              </h2>
+              <p className="text-sm text-gray-500">
+                {customers.length} total
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setEditing(null);
+                setShowForm(!showForm);
+              }}
+              className="inline-flex items-center gap-2 bg-gray-900 hover:bg-black text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+            >
+              <Plus size={16} />
+              {showForm ? "Close" : "Add"}
+            </button>
+          </div>
+
+          {/* Form */}
+          {showForm && (
+            <CustomerForm
+              products={products}
+              laneId={selectedLane}
+              editing={editing}
+              setEditing={setEditing}
+              refresh={refresh}
+              setRefresh={setRefresh}
+            />
+          )}
+
+          {/* Customer Grid */}
+          {customers.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-sm text-gray-500">
+              No customers added yet.
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
               {customers.map((cust) => (
-                <tr key={cust._id}>
-                  <td className="border p-2">{cust.name}</td>
-                  <td className="border p-2">{cust.phone}</td>
-                  <td className="border p-2">
-                    {cust.subscriptions.map((sub, i) => (
-                      <div key={i}>
-                        {sub.productId?.name} ({sub.quantity})
+                <div
+                  key={cust._id}
+                  className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-start hover:shadow-sm transition"
+                >
+
+                  {/* Left Content */}
+                  <div className="space-y-2">
+
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {cust.name}
+                    </h3>
+
+                    {cust.subscriptions?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {cust.subscriptions.map((sub, i) => (
+                          <span
+                            key={i}
+                            className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full"
+                          >
+                            {sub.productId?.name} × {sub.quantity}
+                          </span>
+                        ))}
                       </div>
-                    ))}
-                  </td>
-                  <td className="border p-2 space-x-2">
+                    ) : (
+                      <p className="text-xs text-gray-400">
+                        No subscriptions
+                      </p>
+                    )}
+
+                  </div>
+
+                  {/* Action Icons */}
+                  <div className="flex items-center gap-2">
+
                     <button
-                      onClick={() => setEditing(cust)}
-                      className="bg-blue-500 text-white px-2 py-1"
+                      onClick={() => {
+                        setEditing(cust);
+                        setShowForm(true);
+                      }}
+                      className="p-2 rounded-md hover:bg-gray-100 transition text-gray-600"
                     >
-                      Edit
+                      <Pencil size={16} />
                     </button>
+
                     <button
                       onClick={() => handleDelete(cust._id)}
-                      className="bg-red-500 text-white px-2 py-1"
+                      className="p-2 rounded-md hover:bg-red-50 transition text-red-500"
                     >
-                      Delete
+                      <Trash2 size={16} />
                     </button>
-                  </td>
-                </tr>
+
+                  </div>
+
+                </div>
               ))}
-            </tbody>
-          </table>
-        </>
+
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -22,9 +22,18 @@ const LaneList = () => {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Lanes</h1>
+    <div className="max-w-6xl mx-auto space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">
+          Lanes
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Manage delivery lanes efficiently.
+        </p>
+      </div>
 
+      {/* Form */}
       <LaneForm
         editing={editing}
         setEditing={setEditing}
@@ -32,35 +41,56 @@ const LaneList = () => {
         setRefresh={setRefresh}
       />
 
-      <table className="w-full mt-6 border">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="p-2 border">Lane Name</th>
-            <th className="p-2 border">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lanes.map((lane) => (
-            <tr key={lane._id}>
-              <td className="p-2 border">{lane.name}</td>
-              <td className="p-2 border space-x-2">
-                <button
-                  onClick={() => setEditing(lane)}
-                  className="bg-blue-500 text-white px-2 py-1 rounded"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(lane._id)}
-                  className="bg-red-500 text-white px-2 py-1 rounded"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Table Card */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        {lanes.length === 0 ? (
+          <div className="p-10 text-center text-gray-500 text-sm">
+            No lanes found. Add your first lane to get started.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600 text-left">
+                <tr>
+                  <th className="px-6 py-4 font-medium">Lane Name</th>
+                  <th className="px-6 py-4 font-medium text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-gray-100">
+                {lanes.map((lane) => (
+                  <tr
+                    key={lane._id}
+                    className="hover:bg-gray-50 transition"
+                  >
+                    <td className="px-6 py-4 font-medium text-gray-800">
+                      {lane.name}
+                    </td>
+
+                    <td className="px-6 py-4 text-right space-x-3">
+                      <button
+                        onClick={() => setEditing(lane)}
+                        className="text-gray-600 hover:text-gray-900 text-sm font-medium transition"
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(lane._id)}
+                        className="text-red-500 hover:text-red-600 text-sm font-medium transition"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

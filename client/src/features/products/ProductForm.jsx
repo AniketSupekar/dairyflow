@@ -33,37 +33,62 @@ const ProductForm = ({ editing, setEditing, refresh, setRefresh }) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <div className="flex gap-3">
-        <input
-          type="text"
-          name="name"
-          placeholder="Product Name"
-          value={form.name}
-          onChange={handleChange}
-          className="border p-2 w-full"
-          required
-        />
-        <input
-          type="text"
-          name="unit"
-          placeholder="Unit (litre, packet)"
-          value={form.unit}
-          onChange={handleChange}
-          className="border p-2 w-full"
-          required
-        />
-        <input
-          type="number"
-          name="rate"
-          placeholder="Rate"
-          value={form.rate}
-          onChange={handleChange}
-          className="border p-2 w-full"
-          required
-        />
-        <button className="bg-green-600 text-white px-4 rounded">
-          {editing ? "Update" : "Add"}
+    <form className="bg-white border border-gray-200 rounded-xl p-6 space-y-4" onSubmit={handleSubmit}>
+      <div className="grid sm:grid-cols-3 gap-4">
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Product Name
+          </label>
+          <input
+            type="text"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            placeholder="Enter product name"
+            className="w-full rounded-lg border border-gray-300 focus:border-gray-900 focus:ring-1 focus:ring-gray-900 outline-none px-3 py-2 text-sm transition"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Unit
+          </label>
+          <input
+            type="text"
+            name="unit"
+            value={form.unit}
+            onChange={handleChange}
+            placeholder="litre, packet..."
+            className="w-full rounded-lg border border-gray-300 focus:border-gray-900 focus:ring-1 focus:ring-gray-900 outline-none px-3 py-2 text-sm transition"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Rate
+          </label>
+          <input
+            type="number"
+            name="rate"
+            value={form.rate}
+            onChange={handleChange}
+            placeholder="Enter rate"
+            className="w-full rounded-lg border border-gray-300 focus:border-gray-900 focus:ring-1 focus:ring-gray-900 outline-none px-3 py-2 text-sm transition"
+            required
+          />
+        </div>
+
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          className="bg-gray-900 hover:bg-black text-white text-sm font-medium px-5 py-2 rounded-lg transition"
+        >
+          {editing ? "Update Product" : "Add Product"}
         </button>
       </div>
     </form>
