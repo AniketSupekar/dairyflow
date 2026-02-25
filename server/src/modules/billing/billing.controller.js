@@ -10,6 +10,9 @@ const PDFDocument = require("pdfkit");
 
 
 exports.generateBill = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const tenantId = req.tenantId;
     const { customerId, fromDate, toDate } = req.body;
@@ -24,87 +27,133 @@ exports.generateBill = async (req, res) => {
     const end = new Date(toDate);
     end.setUTCHours(23, 59, 59, 999);
 
+    if (end > new Date()) {
+      return errorResponse(res, "Cannot generate bill for future dates", 400);
+    }
+
     const customer = await Customer.findOne({
       _id: customerId,
       tenantId,
-    });
+    }).session(session);
 
     if (!customer) {
       return errorResponse(res, "Customer not found", 404);
     }
 
-    // ✅ Prevent overlapping bills
     const overlappingBill = await Bill.findOne({
       tenantId,
       customerId,
       fromDate: { $lte: end },
       toDate: { $gte: start },
-    });
+    }).session(session);
 
     if (overlappingBill) {
       return errorResponse(res, "Overlapping bill period exists", 400);
     }
 
-    // ✅ Opening balance ONLY from previous bills
-    const previousBills = await Bill.find({
-      tenantId,
-      customerId,
-      toDate: { $lt: start },
-      status: { $in: ["UNPAID", "PARTIAL"] },
-    });
-
-    const openingBalance = previousBills.reduce((sum, bill) => {
-      return sum + (bill.totalAmount - bill.amountPaid);
-    }, 0);
-
-    // ✅ Fetch only active delivered deliveries
     const deliveries = await DeliveryRecord.find({
       tenantId,
       customerId,
       date: { $gte: start, $lte: end },
       status: "DELIVERED",
       isActive: true,
-    }).populate("productId");
+    })
+      .populate("productId")
+      .session(session);
 
-    const deliveryItems = deliveries.map((d) => ({
-      date: d.date,
-      productName: d.productId?.name || "Product",
-      quantity: d.quantity,
-      rate: d.rate,
-      amount: d.quantity * d.rate,
-    }));
+    const deliveryItems = deliveries.map((d) => {
+      const amount = Math.round(d.quantity * d.rate * 100) / 100;
+      return {
+        date: d.date,
+        productName: d.productId?.name || "Product",
+        quantity: d.quantity,
+        rate: d.rate,
+        amount,
+      };
+    });
 
-    const deliveryTotal = deliveryItems.reduce(
+    let deliveryTotal = deliveryItems.reduce(
       (sum, item) => sum + item.amount,
       0
     );
 
-    if (openingBalance === 0 && deliveryTotal === 0) {
+    deliveryTotal = Math.round(deliveryTotal * 100) / 100;
+
+    if (deliveryTotal === 0) {
       return errorResponse(res, "No deliveries found for this period", 400);
     }
 
+    let totalAmount = deliveryTotal;
+    let amountPaid = 0;
+    let status = "UNPAID";
 
-    const totalAmount = openingBalance + deliveryTotal;
+    // 🔥 AUTO CONSUME ADVANCE (Dynamic Calculation)
+const allBills = await Bill.find({
+  tenantId,
+  customerId,
+}).session(session);
 
-    const bill = await Bill.create({
-      tenantId,
-      customerId,
-      laneId: customer.laneId,
-      fromDate: start,
-      toDate: end,
-      openingBalance,
-      deliveryItems,
-      deliveryTotal,
-      totalAmount,
-      amountPaid: 0,
-      status: "UNPAID",
-    });
+const allPayments = await Payment.find({
+  tenantId,
+  customerId,
+  isActive: true,
+}).session(session);
 
-    return successResponse(res, "Bill generated successfully", bill);
+const totalBilledSoFar = allBills.reduce(
+  (sum, b) => sum + b.totalAmount,
+  0
+);
+
+const totalPaidSoFar = allPayments.reduce(
+  (sum, p) => sum + p.amount,
+  0
+);
+
+const advanceAvailable =
+  totalPaidSoFar - totalBilledSoFar > 0
+    ? totalPaidSoFar - totalBilledSoFar
+    : 0;
+
+if (advanceAvailable > 0) {
+  const usableAdvance = Math.min(advanceAvailable, deliveryTotal);
+
+  amountPaid = usableAdvance;
+
+  if (usableAdvance === deliveryTotal) {
+    status = "PAID";
+  } else {
+    status = "PARTIAL";
+  }
+}
+
+    const bill = await Bill.create(
+      [
+        {
+          tenantId,
+          customerId,
+          laneId: customer.laneId,
+          fromDate: start,
+          toDate: end,
+          deliveryItems,
+          deliveryTotal,
+          totalAmount: deliveryTotal,
+          amountPaid,
+          status,
+        },
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return successResponse(res, "Bill generated successfully", bill[0]);
   } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+
     console.error(err);
 
-    // ✅ Handle duplicate index error safely
     if (err.code === 11000) {
       return errorResponse(res, "Bill already exists for this period", 400);
     }
@@ -161,9 +210,7 @@ exports.downloadBillPdf = async (req, res) => {
     });
 
     doc.moveDown();
-    doc.text(`Opening Balance: ₹${bill.openingBalance}`);
     doc.text(`Delivery Total: ₹${bill.deliveryTotal}`);
-    doc.text(`Total Amount: ₹${bill.totalAmount}`);
     doc.text(`Amount Paid: ₹${bill.amountPaid}`);
     doc.moveDown();
     doc.fontSize(14).text(
@@ -407,6 +454,91 @@ exports.getLaneSummary = async (req, res) => {
     });
 
     return successResponse(res, "Lane summary fetched", summary);
+  } catch (error) {
+    console.error(error);
+    return errorResponse(res, "Server error", 500);
+  }
+};
+
+exports.getCustomerFinancialSummary = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { customerId } = req.params;
+
+    const bills = await Bill.find({ tenantId, customerId });
+    const payments = await Payment.find({
+      tenantId,
+      customerId,
+      isActive: true,
+    });
+
+    const totalBilled = bills.reduce(
+      (sum, b) => sum + b.totalAmount,
+      0
+    );
+
+    const totalPaid = payments.reduce(
+      (sum, p) => sum + p.amount,
+      0
+    );
+
+    const difference = totalPaid - totalBilled;
+
+    const advanceBalance =
+      difference > 0 ? Math.round(difference * 100) / 100 : 0;
+
+    const totalOutstanding =
+      difference < 0 ? Math.round(Math.abs(difference) * 100) / 100 : 0;
+
+    return successResponse(res, "Financial summary fetched", {
+      totalBilled: Math.round(totalBilled * 100) / 100,
+      totalPaid: Math.round(totalPaid * 100) / 100,
+      advanceBalance,
+      totalOutstanding,
+    });
+  } catch (error) {
+    console.error(error);
+    return errorResponse(res, "Server error", 500);
+  }
+};
+
+exports.getBillsByCustomer = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { customerId } = req.params;
+
+    const bills = await Bill.find({
+      tenantId,
+      customerId,
+    }).sort({ fromDate: -1 });
+
+    return successResponse(res, "Bills fetched successfully", bills);
+  } catch (error) {
+    console.error(error);
+    return errorResponse(res, "Server error", 500);
+  }
+};
+
+exports.getCustomerOutstanding = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { customerId } = req.params;
+
+    const bills = await Bill.find({ tenantId, customerId });
+    const customer = await Customer.findOne({ _id: customerId, tenantId });
+
+    const totalOutstanding = bills.reduce((sum, bill) => {
+      return sum + (bill.totalAmount - bill.amountPaid);
+    }, 0);
+
+    const finalOutstanding =
+      Math.round(
+        (totalOutstanding - (customer.advanceBalance || 0)) * 100
+      ) / 100;
+
+    return successResponse(res, "Outstanding fetched", {
+      outstanding: finalOutstanding < 0 ? 0 : finalOutstanding,
+    });
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Server error", 500);

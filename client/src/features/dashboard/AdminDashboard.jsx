@@ -5,10 +5,9 @@ const modules = [
   { name: "Products", to: "/admin/products", icon: <Box size={20} /> },
   { name: "Lanes", to: "/admin/lanes", icon: <MapPin size={20} /> },
   { name: "Customers", to: "/admin/customers", icon: <Users size={20} /> },
-  { name: "Delivery Boys", to: "/admin/delivery-boys", icon: <Truck size={20} /> },
+  { name: "Delivery Team", to: "/admin/delivery-boys", icon: <Truck size={20} /> },
   { name: "Deliveries", to: "/admin/deliveries", icon: <FileText size={20} /> },
-  { name: "Billing", to: "/admin/billing", icon: <FileText size={20} /> },
-  { name: "Payments", to: "/admin/payments", icon: <CreditCard size={20} /> },
+  { name: "Financials", to: "/admin/billing", icon: <FileText size={18} /> },
 ];
 
 const AdminDashboard = () => {

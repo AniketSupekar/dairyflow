@@ -78,12 +78,6 @@ exports.createPayment = async (req, res) => {
       await bill.save({ session });
     }
 
-    if (remainingAmount > 0) {
-      customer.advanceBalance =
-        (customer.advanceBalance || 0) + remainingAmount;
-      await customer.save({ session });
-    }
-
     await session.commitTransaction();
     session.endSession();
 

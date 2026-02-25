@@ -25,8 +25,6 @@ const billSchema = new mongoose.Schema(
     fromDate: { type: Date, required: true },
     toDate: { type: Date, required: true },
 
-    openingBalance: { type: Number, required: true },
-
     deliveryItems: [
       {
         date: { type: Date },
@@ -39,8 +37,9 @@ const billSchema = new mongoose.Schema(
 
     deliveryTotal: { type: Number, required: true },
 
-    // 🔥 NEW PROFESSIONAL FIELDS
+    // ✅ Invoice amount = only this period total
     totalAmount: { type: Number, required: true },
+
     amountPaid: { type: Number, default: 0 },
 
     status: {

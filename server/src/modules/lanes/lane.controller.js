@@ -1,4 +1,5 @@
 const Lane = require("./lane.model");
+const Customer = require("../customers/customer.model");
 
 /**
  * Create Lane
@@ -61,16 +62,15 @@ exports.updateLane = async (req, res) => {
         _id: id,
         tenantId: req.user.tenantId,
       },
-      { name, description },
-      { new: true }
+      {
+        name: name?.trim(),
+        description,
+      },
+      {
+        returnDocument: "after", // ✅ modern mongoose
+        runValidators: true,     // ✅ enforce schema validation
+      }
     );
-
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Lane name already exists",
-      });
-    }
 
     if (!lane) {
       return res.status(404).json({
@@ -79,13 +79,22 @@ exports.updateLane = async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Lane updated successfully",
       data: lane,
     });
+
   } catch (error) {
-    res.status(400).json({
+    // ✅ Proper duplicate handling
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Lane name already exists",
+      });
+    }
+
+    return res.status(500).json({
       success: false,
       message: error.message,
     });

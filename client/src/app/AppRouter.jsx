@@ -12,7 +12,6 @@ import CustomerPage from "../features/customers/CustomerPage";
 import DeliveryBoyPage from "../features/deliveryBoys/DeliveryBoyPage";
 import DeliveryPage from "../features/deliveries/DeliveryPage";
 import BillingPage from "../features/billing/BillingPage";
-import PaymentPage from "../features/payments/PaymentPage";
 import AdminDashboard from "../features/dashboard/AdminDashboard";
 
 // ================= HomeRedirect =================
@@ -64,7 +63,6 @@ const RouterContent = () => {
         <Route path="delivery-boys" element={<DeliveryBoyPage />} />
         <Route path="deliveries" element={<DeliveryPage />} />
         <Route path="billing" element={<BillingPage />} />
-        <Route path="payments" element={<PaymentPage />} />
       </Route>
 
       {/* USER ROUTES */}

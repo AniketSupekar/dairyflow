@@ -8,7 +8,6 @@ import {
   Users,
   Truck,
   FileText,
-  CreditCard,
   LogOut,
   Menu,
   X,
@@ -24,10 +23,9 @@ const AdminLayout = () => {
     { name: "Products", to: "/admin/products", icon: <Box size={18} /> },
     { name: "Lanes", to: "/admin/lanes", icon: <MapPin size={18} /> },
     { name: "Customers", to: "/admin/customers", icon: <Users size={18} /> },
-    { name: "Delivery Boys", to: "/admin/delivery-boys", icon: <Truck size={18} /> },
+    { name: "Delivery Team", to: "/admin/delivery-boys", icon: <Truck size={18} /> },
     { name: "Deliveries", to: "/admin/deliveries", icon: <FileText size={18} /> },
-    { name: "Billing", to: "/admin/billing", icon: <FileText size={18} /> },
-    { name: "Payments", to: "/admin/payments", icon: <CreditCard size={18} /> },
+    { name: "Financials", to: "/admin/billing", icon: <FileText size={18} /> },
   ];
 
   const handleLogout = () => {

@@ -115,9 +115,15 @@ exports.upsertDeliveryRecord = async (req, res) => {
     }
 
     const record = await DeliveryRecord.findOneAndUpdate(
-      { tenantId, customerId, productId, date: normalizedDate },
       {
         tenantId,
+        customerId,
+        productId,
+        date: normalizedDate,
+      },
+      {
+        tenantId,
+        laneId: customer.laneId,   // ✅ store laneId
         customerId,
         productId,
         quantity,
@@ -170,15 +176,14 @@ exports.getDeliveriesByDate = async (req, res) => {
 
     const records = await DeliveryRecord.find({
       tenantId,
+      laneId,
       date: { $gte: start, $lte: end },
       isActive: true,
     })
-      .populate({
-        path: "customerId",
-        match: { laneId },
-        select: "name laneId",
-      })
+      .populate("customerId", "name laneId")
       .populate("productId", "name rate");
+
+    res.json({ success: true, data: records });
 
     const filtered = records.filter((r) => r.customerId);
 

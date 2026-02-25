@@ -3,12 +3,26 @@ const router = express.Router();
 const controller = require("./billing.controller");
 const authMiddleware = require("../../middleware/auth.middleware");
 
-// router.get("/monthly", authMiddleware, controller.generateBill);
+router.use(authMiddleware);
 
-router.post("/generate", authMiddleware, controller.generateBill);
-router.get("/summary/:customerId", authMiddleware, controller.getBillSummary);
-router.get("/ledger/:customerId", authMiddleware, controller.getCustomerLedger);
-router.get("/lane-summary", authMiddleware, controller.getLaneSummary);
-router.get("/:id/pdf", authMiddleware, controller.downloadBillPdf);
+router.post("/generate", controller.generateBill);
+
+router.get("/summary/:customerId", controller.getBillSummary);
+
+router.get("/ledger/:customerId", controller.getCustomerLedger);
+
+router.get("/lane-summary", controller.getLaneSummary);
+
+/**
+ * NEW ROUTE — required by frontend financial panel
+ */
+router.get("/customer/:customerId", controller.getBillsByCustomer);
+
+router.get(
+  "/customer-summary/:customerId",
+  controller.getCustomerFinancialSummary
+);
+
+router.get("/:id/pdf", controller.downloadBillPdf);
 
 module.exports = router;

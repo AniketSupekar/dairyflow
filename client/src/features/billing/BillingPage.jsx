@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCustomersByLane, generateBill } from "../../api/billing.api";
 import { getLanes } from "../../api/lane.api";
+import CustomerFinancialPanel from "../../components/CustomerFinancialPanel";
 
 const BillingPage = () => {
   const [lanes, setLanes] = useState([]);
@@ -11,28 +12,44 @@ const BillingPage = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-
   const [generatedBill, setGeneratedBill] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [financialCustomerId, setFinancialCustomerId] = useState(null);
+
   useEffect(() => {
     const fetchLanes = async () => {
-      const res = await getLanes();
-      setLanes(res.data.data);
+      try {
+        const res = await getLanes();
+        setLanes(res.data.data);
+      } catch (err) {
+        console.error(err);
+      }
     };
     fetchLanes();
   }, []);
 
   const handleLaneChange = async (laneId) => {
     setSelectedLane(laneId);
+    setCustomers([]);
     if (!laneId) return;
-    const res = await getCustomersByLane(laneId);
-    setCustomers(res.data.data);
+
+    try {
+      const res = await getCustomersByLane(laneId);
+      setCustomers(res.data.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const openModal = (customer) => {
     setSelectedCustomer(customer);
     setGeneratedBill(null);
+    setError("");
+    setSuccess("");
     setModalOpen(true);
   };
 
@@ -41,16 +58,20 @@ const BillingPage = () => {
     setFromDate("");
     setToDate("");
     setGeneratedBill(null);
+    setError("");
+    setSuccess("");
   };
 
   const handleGenerateBill = async () => {
+    setError("");
+    setSuccess("");
+
     if (!fromDate || !toDate) {
-      alert("Select date range");
+      setError("Please select a valid date range.");
       return;
     }
 
     setLoading(true);
-
     try {
       const res = await generateBill({
         customerId: selectedCustomer._id,
@@ -59,10 +80,12 @@ const BillingPage = () => {
       });
 
       setGeneratedBill(res.data.data);
+      setSuccess("Bill generated successfully.");
     } catch (err) {
-      alert("Error generating bill");
+      setError(
+        err?.response?.data?.message || "Failed to generate bill."
+      );
     }
-
     setLoading(false);
   };
 
@@ -74,100 +97,137 @@ const BillingPage = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 py-6">
 
-      <div>
-        <h1 className="text-xl md:text-2xl font-semibold text-gray-900">
-          Billing
-        </h1>
-      </div>
+      {/* ---------------------------
+          IF FINANCIAL VIEW ACTIVE
+      ---------------------------- */}
+      {financialCustomerId ? (
+        <CustomerFinancialPanel
+          customerId={financialCustomerId}
+          onBack={() => setFinancialCustomerId(null)}
+        />
+      ) : (
+        <>
+          {/* HEADER */}
+          <div className="mb-6">
+            <h1 className="text-xl md:text-2xl font-semibold text-gray-900">
+              Financials
+            </h1>
+            <p className="text-sm text-gray-500">
+              Select lane and customer to manage financial records
+            </p>
+          </div>
 
-      <div>
-        <select
-          value={selectedLane}
-          onChange={(e) => handleLaneChange(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-        >
-          <option value="">Select Lane</option>
-          {lanes.map((lane) => (
-            <option key={lane._id} value={lane._id}>
-              {lane.name}
-            </option>
-          ))}
-        </select>
-      </div>
+          {/* LANE SELECTOR */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm mb-6">
+            <label className="text-sm font-medium text-gray-700 block mb-2">
+              Select Lane
+            </label>
+            <select
+              value={selectedLane}
+              onChange={(e) => handleLaneChange(e.target.value)}
+              className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:ring-1 focus:ring-gray-900 focus:border-gray-900 outline-none"
+            >
+              <option value="">Select Lane</option>
+              {lanes.map((lane) => (
+                <option key={lane._id} value={lane._id}>
+                  {lane.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      {customers.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-700">
-              <tr>
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-4 py-3 text-left">Opening Balance</th>
-                <th className="px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
+          {/* CUSTOMER GRID */}
+          {customers.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {customers.map((customer) => (
-                <tr
+                <div
                   key={customer._id}
-                  className="border-t border-gray-100"
+                  className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 shadow-sm hover:shadow-md transition"
                 >
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {customer.name}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    ₹{customer.openingBalance || 0}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {customer.name}
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Opening Balance: ₹{customer.openingBalance || 0}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
                     <button
                       onClick={() => openModal(customer)}
-                      className="bg-gray-900 hover:bg-black text-white text-xs font-medium px-4 py-2 rounded-lg transition"
+                      className="flex-1 bg-gray-900 hover:bg-black text-white text-xs font-medium px-3 py-2 rounded-xl transition"
                     >
                       Generate Bill
                     </button>
-                  </td>
-                </tr>
+
+                    <button
+                      onClick={() =>
+                        setFinancialCustomerId(customer._id)
+                      }
+                      className="flex-1 border border-gray-300 text-xs px-3 py-2 rounded-xl hover:bg-gray-50 transition"
+                    >
+                      View Financials
+                    </button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
+      {/* ---------------------------
+            BILL GENERATION MODAL
+      ---------------------------- */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center px-4 z-50">
-          <div className="bg-white w-full max-w-lg rounded-2xl p-6 space-y-5 shadow-xl">
+          <div className="bg-white w-full max-w-md rounded-2xl p-6 space-y-5 shadow-xl">
 
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
                 {selectedCustomer?.name}
               </h2>
               <p className="text-xs text-gray-500">
-                Generate Non-GST Bill
+                Generate bill for selected date range
               </p>
             </div>
 
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div className="text-sm text-green-600 bg-green-50 border border-green-200 px-3 py-2 rounded-xl">
+                {success}
+              </div>
+            )}
+
             {!generatedBill && (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <input
                     type="date"
                     value={fromDate}
                     onChange={(e) => setFromDate(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
                   />
                   <input
                     type="date"
                     value={toDate}
                     onChange={(e) => setToDate(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
                   />
                 </div>
 
                 <button
                   onClick={handleGenerateBill}
                   disabled={loading}
-                  className="bg-gray-900 hover:bg-black text-white text-sm font-medium px-4 py-2 rounded-lg w-full transition"
+                  className="w-full bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 rounded-xl transition disabled:opacity-50"
                 >
                   {loading ? "Generating..." : "Generate Bill"}
                 </button>
@@ -175,47 +235,9 @@ const BillingPage = () => {
             )}
 
             {generatedBill && (
-              <div className="space-y-4">
-
-                <div className="max-h-64 overflow-auto border rounded-lg">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="p-2 text-left">Date</th>
-                        <th className="p-2 text-left">Product</th>
-                        <th className="p-2 text-center">Qty</th>
-                        <th className="p-2 text-center">Rate</th>
-                        <th className="p-2 text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {generatedBill.deliveryItems?.map((item, index) => (
-                        <tr key={index} className="border-t">
-                          <td className="p-2">
-                            {new Date(item.date).toLocaleDateString()}
-                          </td>
-                          <td className="p-2">{item.productName}</td>
-                          <td className="p-2 text-center">{item.quantity}</td>
-                          <td className="p-2 text-center">₹{item.rate}</td>
-                          <td className="p-2 text-right font-medium">
-                            ₹{item.amount}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="text-sm space-y-1 border-t pt-3">
+              <>
+                <div className="border-t pt-4 space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span>Opening Balance</span>
-                    <span>₹{generatedBill.openingBalance}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Deliveries</span>
-                    <span>₹{generatedBill.deliveryTotal}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold text-base pt-1">
                     <span>Total</span>
                     <span>₹{generatedBill.totalAmount}</span>
                   </div>
@@ -223,30 +245,30 @@ const BillingPage = () => {
                     <span>Paid</span>
                     <span>₹{generatedBill.amountPaid}</span>
                   </div>
-                  <div className="flex justify-between font-bold text-red-600 pt-1">
+                  <div className="flex justify-between font-semibold text-red-600">
                     <span>Pending</span>
                     <span>
-                      ₹{generatedBill.totalAmount - generatedBill.amountPaid}
+                      ₹{generatedBill.totalAmount -
+                        generatedBill.amountPaid}
                     </span>
                   </div>
                 </div>
 
                 <button
                   onClick={handleDownload}
-                  className="bg-gray-900 hover:bg-black text-white text-sm font-medium px-4 py-2 rounded-lg w-full transition"
+                  className="w-full bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 rounded-xl transition"
                 >
                   Download PDF
                 </button>
-              </div>
+              </>
             )}
 
             <button
               onClick={closeModal}
-              className="text-sm text-gray-600 hover:text-black w-full"
+              className="text-sm text-gray-500 w-full"
             >
               Close
             </button>
-
           </div>
         </div>
       )}

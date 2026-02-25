@@ -8,6 +8,13 @@ const deliveryRecordSchema = new mongoose.Schema(
       required: true,
     },
 
+    laneId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lane",
+      required: true,
+      index: true,
+    },
+
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
@@ -29,7 +36,7 @@ const deliveryRecordSchema = new mongoose.Schema(
 
     rate: {
       type: Number,
-      required: true, // snapshot of product rate at delivery time
+      required: true,
     },
 
     status: {
@@ -43,6 +50,7 @@ const deliveryRecordSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -51,15 +59,11 @@ const deliveryRecordSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// prevent duplicate delivery entry for same customer + date + product
 deliveryRecordSchema.index(
   { tenantId: 1, customerId: 1, productId: 1, date: 1 },
   { unique: true }
 );
 
-deliveryRecordSchema.index({ tenantId: 1 });
-deliveryRecordSchema.index({ customerId: 1, date: 1 });
-deliveryRecordSchema.index({ tenantId: 1, date: 1 });
-deliveryRecordSchema.index({ tenantId: 1, customerId: 1, date: 1 });
+deliveryRecordSchema.index({ tenantId: 1, laneId: 1, date: 1 });
 
 module.exports = mongoose.model("DeliveryRecord", deliveryRecordSchema);
