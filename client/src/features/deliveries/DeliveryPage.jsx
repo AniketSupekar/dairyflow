@@ -8,7 +8,7 @@ import {
   upsertDeliveryRecord,
   deleteDeliveryRecord,
 } from "../../api/deliveryRecord.api";
-import { Pencil, Trash2, Plus, X } from "lucide-react";
+import { Pencil, Trash2, Plus, X, ClipboardList, UserCheck } from "lucide-react";
 
 const DeliveryPage = () => {
   const { user } = useContext(AuthContext);
@@ -203,6 +203,62 @@ const DeliveryPage = () => {
     await loadData();
   };
 
+  // ─── Empty States ────────────────────────────────────────────────────────────
+
+  const EmptyListState = () => (
+    <div className="col-span-full flex flex-col items-center justify-center py-16 px-4">
+      <div className="w-14 h-14 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
+        <ClipboardList size={24} className="text-gray-400" />
+      </div>
+      <p className="text-sm font-medium text-gray-700 mb-1">No deliveries recorded</p>
+      <p className="text-xs text-gray-400 text-center max-w-xs mb-5">
+        No delivery records found for this date and lane.
+        {isAdmin
+          ? ' Click "Add" to start adding records.'
+          : " Start adding your delivery entries for today."}
+      </p>
+      <button
+        onClick={() => setIsAddMode(true)}
+        className="bg-gray-900 text-white px-4 py-2 rounded-lg text-xs flex items-center gap-2"
+      >
+        <Plus size={14} />
+        Add Delivery Records
+      </button>
+    </div>
+  );
+
+  const EmptyAddModeState = () => (
+    <div className="col-span-full flex flex-col items-center justify-center py-16 px-4">
+      <div className="w-14 h-14 rounded-2xl bg-green-50 border border-green-100 flex items-center justify-center mb-4">
+        <UserCheck size={24} className="text-green-500" />
+      </div>
+      <p className="text-sm font-medium text-gray-700 mb-1">All customers recorded</p>
+      <p className="text-xs text-gray-400 text-center max-w-xs mb-5">
+        Delivery records have been added for all customers in this lane for the selected date.
+      </p>
+      <button
+        onClick={() => setIsAddMode(false)}
+        className="border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-xs"
+      >
+        View Records
+      </button>
+    </div>
+  );
+
+  const NoLaneSelectedState = () => (
+    <div className="col-span-full flex flex-col items-center justify-center py-16 px-4">
+      <div className="w-14 h-14 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mb-4">
+        <ClipboardList size={24} className="text-gray-300" />
+      </div>
+      <p className="text-sm font-medium text-gray-500 mb-1">Select a lane to continue</p>
+      <p className="text-xs text-gray-400 text-center max-w-xs">
+        Choose a lane from the dropdown above to view or add delivery records.
+      </p>
+    </div>
+  );
+
+  // ─── Card Render ─────────────────────────────────────────────────────────────
+
   const renderCustomerCard = (cust, type) => {
     const isEditing = editingCustomerId === cust._id;
 
@@ -243,13 +299,7 @@ const DeliveryPage = () => {
                 <select
                   value={row.productId}
                   onChange={(e) =>
-                    handleRowChange(
-                      cust._id,
-                      index,
-                      "productId",
-                      e.target.value,
-                      type
-                    )
+                    handleRowChange(cust._id, index, "productId", e.target.value, type)
                   }
                   className="w-full border rounded-lg px-2 py-1.5"
                 >
@@ -265,13 +315,7 @@ const DeliveryPage = () => {
                     type="number"
                     value={row.quantity}
                     onChange={(e) =>
-                      handleRowChange(
-                        cust._id,
-                        index,
-                        "quantity",
-                        e.target.value,
-                        type
-                      )
+                      handleRowChange(cust._id, index, "quantity", e.target.value, type)
                     }
                     className="border rounded-lg px-2 py-1.5"
                   />
@@ -279,26 +323,14 @@ const DeliveryPage = () => {
                     type="number"
                     value={row.rate}
                     onChange={(e) =>
-                      handleRowChange(
-                        cust._id,
-                        index,
-                        "rate",
-                        e.target.value,
-                        type
-                      )
+                      handleRowChange(cust._id, index, "rate", e.target.value, type)
                     }
                     className="border rounded-lg px-2 py-1.5"
                   />
                   <select
                     value={row.status}
                     onChange={(e) =>
-                      handleRowChange(
-                        cust._id,
-                        index,
-                        "status",
-                        e.target.value,
-                        type
-                      )
+                      handleRowChange(cust._id, index, "status", e.target.value, type)
                     }
                     className="border rounded-lg px-2 py-1.5"
                   >
@@ -354,10 +386,23 @@ const DeliveryPage = () => {
     );
   };
 
+  // ─── Render ───────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-6xl mx-auto px-4 space-y-6">
+
+      {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-xl font-semibold">Delivery Records</h1>
+        <div>
+          <h1 className="text-xl font-semibold">Delivery Records</h1>
+          {selectedLane && (
+            <p className="text-xs text-gray-400 mt-0.5">
+              {isAddMode
+                ? `${remainingCustomers.length} customer${remainingCustomers.length !== 1 ? "s" : ""} pending`
+                : `${addedCustomers.length} record${addedCustomers.length !== 1 ? "s" : ""} for ${date}`}
+            </p>
+          )}
+        </div>
 
         <button
           onClick={() => setIsAddMode(!isAddMode)}
@@ -368,12 +413,14 @@ const DeliveryPage = () => {
         </button>
       </div>
 
+      {/* Success message */}
       {successMessage && (
         <div className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2 rounded-lg">
           {successMessage}
         </div>
       )}
 
+      {/* Filters */}
       <div className="flex gap-3">
         {isAdmin && (
           <input
@@ -400,14 +447,38 @@ const DeliveryPage = () => {
         )}
       </div>
 
+      {/* Mode indicator pill — shows which mode user is in */}
+      {selectedLane && (
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium ${
+              isAddMode
+                ? "bg-blue-50 text-blue-600 border border-blue-100"
+                : "bg-gray-100 text-gray-600 border border-gray-200"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isAddMode ? "bg-blue-500" : "bg-gray-400"
+              }`}
+            />
+            {isAddMode ? "Add Mode - Pending customers" : "View Mode - Recorded entries"}
+          </span>
+        </div>
+      )}
+
+      {/* Grid */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {isAddMode
-          ? remainingCustomers.map((cust) =>
-              renderCustomerCard(cust, "remaining")
-            )
-          : addedCustomers.map((cust) =>
-              renderCustomerCard(cust, "added")
-            )}
+        {/* No lane selected */}
+        {!selectedLane && <NoLaneSelectedState />}
+
+        {/* Add mode */}
+        {selectedLane && isAddMode && remainingCustomers.length === 0 && <EmptyAddModeState />}
+        {selectedLane && isAddMode && remainingCustomers.map((cust) => renderCustomerCard(cust, "remaining"))}
+
+        {/* List mode */}
+        {selectedLane && !isAddMode && addedCustomers.length === 0 && <EmptyListState />}
+        {selectedLane && !isAddMode && addedCustomers.map((cust) => renderCustomerCard(cust, "added"))}
       </div>
     </div>
   );

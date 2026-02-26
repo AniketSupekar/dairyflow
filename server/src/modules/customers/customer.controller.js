@@ -182,3 +182,103 @@ exports.deleteCustomer = async (req, res) => {
     });
   }
 };
+
+exports.getAllCustomers = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    let { page = 1, limit = 10, search = "" } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const filter = {
+      tenantId,
+      isActive: true,
+    };
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const total = await Customer.countDocuments(filter);
+
+    const customers = await Customer.find(filter)
+      .sort({ name: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate("laneId", "name");
+
+    res.json({
+      success: true,
+      data: customers,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        limit,
+      },
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/**
+ * Restore (Reactivate) Customer
+ */
+exports.restoreCustomer = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { id } = req.params;
+
+    const customer = await Customer.findOneAndUpdate(
+      { _id: id, tenantId },
+      { isActive: true },
+      { new: true }
+    );
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Customer restored successfully",
+      data: customer,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * Get Inactive Customers
+ */
+exports.getInactiveCustomers = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const { laneId } = req.query;
+
+    const filter = { tenantId, isActive: false };
+    if (laneId) filter.laneId = laneId;
+
+    const customers = await Customer.find(filter)
+      .sort({ name: 1 })
+      .populate("laneId", "name")
+      .populate("subscriptions.productId", "name");
+
+    res.json({ success: true, data: customers });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};

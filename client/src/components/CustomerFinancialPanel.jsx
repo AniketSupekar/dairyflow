@@ -1,266 +1,221 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import BillViewModal from "./BillViewModal";
+import { X, Download, Eye, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function CustomerFinancialPanel({ customerId, onClose }) {
+  const [visible, setVisible] = useState(true); // internal visibility — fixes close bug
   const [summary, setSummary] = useState(null);
   const [bills, setBills] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [billPagination, setBillPagination] = useState({});
+  const [paymentPagination, setPaymentPagination] = useState({});
+  const [billPage, setBillPage] = useState(1);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [monthFilter, setMonthFilter] = useState("");
+  const [showAllBills, setShowAllBills] = useState(false);
+  const [showAllPayments, setShowAllPayments] = useState(false);
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("CASH");
-
   const [selectedBill, setSelectedBill] = useState(null);
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    if (customerId) fetchAll();
+    if (customerId) fetchSummary();
   }, [customerId]);
 
-  // ESC key close
   useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === "Escape") {
-        if (selectedBill) {
-          setSelectedBill(null);
-        } else {
-          onClose?.();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [selectedBill, onClose]);
+    if (customerId) fetchBills();
+  }, [customerId, billPage, monthFilter, showAllBills]);
 
-  const fetchAll = async () => {
-    try {
-      const summaryRes = await api.get(
-        `/billing/customer-summary/${customerId}`
-      );
-      const billsRes = await api.get(
-        `/billing/customer/${customerId}`
-      );
-      const paymentsRes = await api.get(
-        `/payments/${customerId}`
-      );
+  useEffect(() => {
+    if (customerId) fetchPayments();
+  }, [customerId, paymentPage, monthFilter, showAllPayments]);
 
-      setSummary(summaryRes.data.data);
-      setBills(billsRes.data.data || []);
-      setPayments(paymentsRes.data.data || []);
-    } catch (error) {
-      console.error(error);
-    }
+  const fetchSummary = async () => {
+    const res = await api.get(`/billing/customer-summary/${customerId}`);
+    setSummary(res.data.data);
+  };
+
+  const fetchBills = async () => {
+    const limit = showAllBills ? 10 : 2;
+    const res = await api.get(`/billing/customer/${customerId}`, {
+      params: { page: billPage, limit, month: monthFilter || undefined },
+    });
+    setBills(res.data.data.data);
+    setBillPagination(res.data.data.pagination);
+  };
+
+  const fetchPayments = async () => {
+    const limit = showAllPayments ? 10 : 2;
+    const res = await api.get(`/payments/${customerId}`, {
+      params: { page: paymentPage, limit, month: monthFilter || undefined },
+    });
+    setPayments(res.data.data.data);
+    setPaymentPagination(res.data.data.pagination);
   };
 
   const handlePayment = async () => {
     if (!amount) return;
-
-    try {
-      await api.post("/payments", {
-        customerId,
-        amount: Number(amount),
-        paymentMode,
-        date: new Date(),
-      });
-
-      setAmount("");
-      fetchAll();
-    } catch (error) {
-      console.error(error);
-    }
+    setAdding(true);
+    await api.post("/payments", {
+      customerId,
+      amount: Number(amount),
+      paymentMode,
+      date: new Date(),
+    });
+    setAmount("");
+    await Promise.all([fetchSummary(), fetchBills(), fetchPayments()]);
+    setAdding(false);
   };
 
   const deletePayment = async (id) => {
-    try {
-      await api.delete(`/payments/${id}`);
-      fetchAll();
-    } catch (error) {
-      console.error(error);
-    }
+    await api.delete(`/payments/${id}`);
+    fetchSummary();
+    fetchBills();
+    fetchPayments();
   };
 
   const downloadBill = (billId) => {
-    window.open(
-      `${import.meta.env.VITE_API_URL}/billing/${billId}/pdf`,
-      "_blank"
-    );
+    window.open(`${import.meta.env.VITE_API_URL}/billing/${billId}/pdf`, "_blank");
   };
 
-  const getStatusStyle = (status) => {
-    if (status === "PAID")
-      return "bg-green-100 text-green-700";
-    if (status === "PARTIAL")
-      return "bg-yellow-100 text-yellow-700";
-    return "bg-red-100 text-red-700";
+  // Fires both internal state + parent callback — no longer depends solely on parent
+  const handleClose = () => {
+    setVisible(false);
+    if (typeof onClose === "function") onClose();
   };
+
+  if (!visible) return null;
 
   return (
     <>
-      {/* MAIN PANEL */}
+      {/* Backdrop — onMouseDown to avoid drag-release false triggers */}
       <div
-        onClick={() => onClose?.()}
-        className="fixed inset-0 bg-black/40 flex justify-center items-start overflow-auto z-50 px-4 py-6"
+        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto px-4 py-8"
+        onMouseDown={handleClose}
       >
+        {/* Modal */}
         <div
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-4xl bg-white rounded-2xl shadow-xl p-6 space-y-8"
+          className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl mb-8"
+          onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Customer Financials
-            </h2>
-            <button
-              onClick={() => onClose?.()}
-              className="text-sm text-gray-500 hover:text-gray-900"
-            >
-              Close
-            </button>
-          </div>
-
-          {/* Summary */}
-          {summary && (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <SummaryCard title="Total Billed" value={summary.totalBilled} />
-              <SummaryCard title="Total Paid" value={summary.totalPaid} />
-              <SummaryCard
-                title="Advance"
-                value={summary.advanceBalance || 0}
-              />
-              <SummaryCard
-                title="Outstanding"
-                value={summary.totalOutstanding}
-                dark
-              />
+          <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Customer Financials</h2>
             </div>
-          )}
-
-          {/* Bills */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
-              Bills
-            </h3>
-
-            {bills.length === 0 && (
-              <p className="text-sm text-gray-500">
-                No bills found
-              </p>
-            )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {bills.map((bill) => (
-                <div
-                  key={bill._id}
-                  className="border border-gray-200 rounded-xl p-4 space-y-2"
-                >
-                  <div className="flex justify-between text-sm">
-                    <span>Total</span>
-                    <span>₹{bill.totalAmount}</span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span>Paid</span>
-                    <span>₹{bill.amountPaid}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Status</span>
-                    <span
-                      className={`text-xs px-3 py-1 rounded-full font-medium ${getStatusStyle(
-                        bill.status
-                      )}`}
-                    >
-                      {bill.status}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      onClick={() => setSelectedBill(bill)}
-                      className="flex-1 text-xs bg-gray-900 text-white py-2 rounded-lg"
-                    >
-                      View
-                    </button>
-                    <button
-                      onClick={() => downloadBill(bill._id)}
-                      className="flex-1 text-xs border border-gray-300 py-2 rounded-lg"
-                    >
-                      Download
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Payments */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-3">
-              Payments
-            </h3>
-
-            {payments.length === 0 && (
-              <p className="text-sm text-gray-500">
-                No payments found
-              </p>
-            )}
-
-            <div className="space-y-2">
-              {payments.map((pay) => (
-                <div
-                  key={pay._id}
-                  className="flex justify-between items-center border border-gray-200 rounded-xl p-3 text-sm"
-                >
-                  <div>
-                    <p className="font-medium">
-                      ₹{pay.amount}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(pay.date).toLocaleDateString()} • {pay.paymentMode}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => deletePayment(pay._id)}
-                    className="text-xs text-red-600 hover:underline"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Add Payment */}
-          <div className="border-t pt-4 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-700">
-              Add Payment
-            </h3>
-
-            <div className="grid sm:grid-cols-3 gap-3">
+            <div className="flex items-center gap-3">
               <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Amount"
-                className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
+                type="month"
+                value={monthFilter}
+                onChange={(e) => {
+                  setMonthFilter(e.target.value);
+                  setBillPage(1);
+                  setPaymentPage(1);
+                }}
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400"
               />
-
-              <select
-                value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value)}
-                className="rounded-xl border border-gray-300 px-3 py-2 text-sm"
-              >
-                <option value="CASH">Cash</option>
-                <option value="UPI">UPI</option>
-                <option value="BANK">Bank</option>
-                <option value="OTHER">Other</option>
-              </select>
-
               <button
-                onClick={handlePayment}
-                className="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2 rounded-xl"
+                type="button"
+                onClick={handleClose}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
               >
-                Add
+                <X size={15} strokeWidth={2.5} />
               </button>
+            </div>
+          </div>
+
+          <div className="px-6 py-5 space-y-7">
+            {/* Summary Cards */}
+            {summary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <SummaryCard label="Total Billed" value={summary.totalBilled} />
+                <SummaryCard label="Total Paid" value={summary.totalPaid} color="green" />
+                <SummaryCard label="Advance" value={summary.advanceBalance || 0} color="blue" />
+                <SummaryCard label="Outstanding" value={summary.totalOutstanding} color="red" />
+              </div>
+            )}
+
+            {/* Bills */}
+            <Section
+              title="Bills"
+              count={billPagination?.total}
+              showAll={showAllBills}
+              onToggle={() => { setShowAllBills(!showAllBills); setBillPage(1); }}
+            >
+              {!bills.length ? (
+                <EmptyState text="No bills found for this period" />
+              ) : (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {bills.map((bill) => (
+                    <BillCard
+                      key={bill._id}
+                      bill={bill}
+                      onView={() => setSelectedBill(bill)}
+                      onDownload={() => downloadBill(bill._id)}
+                    />
+                  ))}
+                </div>
+              )}
+              {showAllBills && (
+                <Pagination pagination={billPagination} page={billPage} setPage={setBillPage} />
+              )}
+            </Section>
+
+            {/* Payments */}
+            <Section
+              title="Payments"
+              count={paymentPagination?.total}
+              showAll={showAllPayments}
+              onToggle={() => { setShowAllPayments(!showAllPayments); setPaymentPage(1); }}
+            >
+              {!payments.length ? (
+                <EmptyState text="No payments found for this period" />
+              ) : (
+                <div className="space-y-2">
+                  {payments.map((pay) => (
+                    <PaymentRow key={pay._id} payment={pay} onDelete={() => deletePayment(pay._id)} />
+                  ))}
+                </div>
+              )}
+              {showAllPayments && (
+                <Pagination pagination={paymentPagination} page={paymentPage} setPage={setPaymentPage} />
+              )}
+            </Section>
+
+            {/* Add Payment — stacks vertically on mobile */}
+            <div className="border-t border-gray-200 pt-5">
+              <p className="text-xs font-semibold text-gray-700 mb-3 uppercase tracking-wide">
+                Add Payment
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="number"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Amount (₹)"
+                  className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                  className="sm:w-36 w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK">Bank</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={handlePayment}
+                  disabled={adding || !amount}
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                >
+                  {adding ? "Adding…" : "Add"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -277,18 +232,160 @@ export default function CustomerFinancialPanel({ customerId, onClose }) {
   );
 }
 
-function SummaryCard({ title, value, dark }) {
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SummaryCard({ label, value, color }) {
+  const colorMap = {
+    green: "bg-green-50 text-green-900",
+    blue:  "bg-blue-50 text-blue-900",
+    red:   "bg-red-50 text-red-900",
+  };
+  const base = color ? colorMap[color] : "bg-gray-100 text-gray-900";
   return (
-    <div
-      className={`rounded-xl p-4 ${dark ? "bg-gray-900 text-white" : "bg-gray-50"
-        }`}
-    >
-      <p className={`text-xs ${dark ? "opacity-80" : "text-gray-500"}`}>
-        {title}
-      </p>
-      <p className="text-lg font-semibold">
-        ₹{value}
-      </p>
+    <div className={`rounded-xl p-4 ${base}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-60">{label}</p>
+      <p className="text-xl font-bold mt-1">₹{value}</p>
     </div>
   );
+}
+
+function Section({ title, count, showAll, onToggle, children }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {count > 0 && (
+            <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">
+              {count}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          {showAll ? "Show less" : "View all"}
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function BillCard({ bill, onView, onDownload }) {
+  const statusConfig = {
+    PAID:    { cls: "bg-green-100 text-green-800",  label: "Paid" },
+    PARTIAL: { cls: "bg-amber-100 text-amber-800",  label: "Partial" },
+    UNPAID:  { cls: "bg-red-100 text-red-800",      label: "Unpaid" },
+  };
+  const s = statusConfig[bill.status] || statusConfig.UNPAID;
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 space-y-3 hover:border-gray-300 transition-colors">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-600">
+          {bill.month
+            ? new Date(bill.month + "-01").toLocaleDateString("en-IN", { month: "long", year: "numeric" })
+            : "—"}
+        </span>
+        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${s.cls}`}>
+          {s.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-y-1.5 text-sm">
+        <span className="text-gray-600 font-medium">Total</span>
+        <span className="text-right font-bold text-gray-900">₹{bill.totalAmount}</span>
+        <span className="text-gray-600 font-medium">Paid</span>
+        <span className="text-right font-bold text-green-700">₹{bill.amountPaid}</span>
+        {bill.status !== "PAID" && (
+          <>
+            <span className="text-gray-600 font-medium">Due</span>
+            <span className="text-right font-bold text-red-600">
+              ₹{bill.totalAmount - bill.amountPaid}
+            </span>
+          </>
+        )}
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onView}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+        >
+          <Eye size={12} /> View
+        </button>
+        <button
+          type="button"
+          onClick={onDownload}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition-colors font-semibold"
+        >
+          <Download size={12} /> PDF
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentRow({ payment, onDelete }) {
+  const modeColors = {
+    CASH:  "bg-green-100 text-green-800",
+    UPI:   "bg-blue-100 text-blue-800",
+    BANK:  "bg-purple-100 text-purple-800",
+    OTHER: "bg-gray-200 text-gray-700",
+  };
+  return (
+    <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-gray-300 transition-colors">
+      <div className="flex items-center gap-3">
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${modeColors[payment.paymentMode] || modeColors.OTHER}`}>
+          {payment.paymentMode}
+        </span>
+        <div>
+          <p className="text-sm font-bold text-gray-900">₹{payment.amount}</p>
+          <p className="text-xs font-medium text-gray-500">
+            {new Date(payment.date).toLocaleDateString("en-IN", {
+              day: "numeric", month: "short", year: "numeric",
+            })}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
+function Pagination({ pagination, page, setPage }) {
+  if (!pagination?.pages || pagination.pages <= 1) return null;
+  return (
+    <div className="flex items-center justify-center gap-3 mt-3">
+      <button
+        type="button"
+        disabled={page === 1}
+        onClick={() => setPage(page - 1)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <span className="text-xs font-semibold text-gray-600">{page} / {pagination.pages}</span>
+      <button
+        type="button"
+        disabled={page === pagination.pages}
+        onClick={() => setPage(page + 1)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-300 disabled:opacity-40 hover:bg-gray-50 transition-colors"
+      >
+        <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return <p className="text-xs font-semibold text-gray-500 py-3 text-center">{text}</p>;
 }

@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { getProducts, deleteProduct } from "../../api/product.api";
 import ProductForm from "./ProductForm";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import Toast from "../../components/Toast";
+import { useToast } from "../../hooks/useToast";
+import { Pencil, Trash2, Plus, Package, Tag, Layers } from "lucide-react";
 
 const ProductList = () => {
   const [products, setProducts] = useState([]);
   const [editing, setEditing] = useState(null);
   const [refresh, setRefresh] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const { toasts, toast } = useToast();
 
   useEffect(() => {
     fetchProducts();
@@ -19,13 +23,12 @@ const ProductList = () => {
   };
 
   const handleDelete = async (id) => {
-    const confirm = window.confirm(
-      "Are you sure you want to delete this product?"
-    );
-    if (!confirm) return;
-
+    if (!window.confirm("Delete this product?")) return;
+    setDeletingId(id);
     await deleteProduct(id);
+    setDeletingId(null);
     setRefresh(!refresh);
+    toast({ message: "Product deleted", type: "success" });
   };
 
   const handleEdit = (product) => {
@@ -33,98 +36,140 @@ const ProductList = () => {
     setShowForm(true);
   };
 
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setEditing(null);
+  };
+
+  const handleAddNew = () => {
+    setEditing(null);
+    setShowForm((prev) => !prev);
+  };
+
   return (
-    <div className="max-w-6xl mx-auto px-4 space-y-6">
+    <div className="max-w-6xl mx-auto px-4 space-y-5">
 
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl md:text-2xl font-semibold text-gray-900">
-            Products
-          </h1>
-          <p className="text-sm text-gray-500">
-            Manage dairy products
-          </p>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Products</h1>
+          </div>
+          <p className="text-sm text-gray-500 mt-0.5">Manage dairy products and pricing</p>
         </div>
-
         <button
-          onClick={() => {
-            setEditing(null);
-            setShowForm(!showForm);
-          }}
-          className="inline-flex items-center gap-2 bg-gray-900 hover:bg-black text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+          onClick={handleAddNew}
+          className="inline-flex items-center gap-2 bg-gray-900 hover:bg-black text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition"
         >
-          <Plus size={16} />
-          {showForm ? "Close" : "Add"}
+          <Plus size={15} strokeWidth={2.5} />
+          {showForm && !editing ? "Cancel" : "Add Product"}
         </button>
       </div>
 
-      {/* Form */}
+      {/* 2 stat cards */}
+      {products.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            icon={<Layers size={14} />}
+            label="Total Products"
+            value={products.length}
+          />
+          <StatCard
+            icon={<Tag size={14} />}
+            label="Avg. Rate"
+            value={`₹${(products.reduce((s, p) => s + p.rate, 0) / products.length).toFixed(0)}`}
+          />
+        </div>
+      )}
+
+      {/* Form panel */}
       {showForm && (
         <ProductForm
           editing={editing}
           setEditing={setEditing}
           refresh={refresh}
           setRefresh={setRefresh}
+          onCancel={handleCloseForm}
+          onSuccess={(msg) => toast({ message: msg, type: "success" })}
         />
       )}
 
-      {/* Grid */}
-      {products.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-sm text-gray-500">
-          No products found.
+      {/* Empty state */}
+      {products.length === 0 && !showForm ? (
+        <div className="bg-white border border-gray-200 rounded-2xl py-16 flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+            <Package size={20} className="text-gray-400" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-gray-700">No products yet</p>
+            <p className="text-xs text-gray-400 mt-1">Add your first product to get started</p>
+          </div>
+          <button
+            onClick={handleAddNew}
+            className="mt-1 inline-flex items-center gap-1.5 bg-gray-900 text-white text-xs font-semibold px-4 py-2 rounded-xl"
+          >
+            <Plus size={13} /> Add Product
+          </button>
         </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-
+      ) : products.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {products.map((product) => (
             <div
               key={product._id}
-              className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-start hover:shadow-sm transition"
+              className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center justify-between hover:border-gray-300 hover:shadow-sm transition"
             >
-
-              {/* Left Content */}
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-gray-900">
-                  {product.name}
-                </h3>
-
-                <p className="text-xs text-gray-500">
-                  Unit: {product.unit}
-                </p>
-
-                <p className="text-xs font-medium text-gray-700">
-                  ₹ {product.rate}
-                </p>
+              {/* Left */}
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{product.name}</p>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md">
+                    {product.unit}
+                  </span>
+                  <span className="text-xs font-bold text-gray-800">₹{product.rate}</span>
+                </div>
               </div>
 
-              {/* Action Icons */}
-              <div className="flex items-center gap-2">
-
+              {/* Actions */}
+              <div className="flex items-center gap-1 flex-shrink-0 ml-3">
                 <button
                   onClick={() => handleEdit(product)}
-                  className="p-2 rounded-md hover:bg-gray-100 transition text-gray-600"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-blue-50 transition text-blue-400 hover:text-blue-600"
+                  title="Edit"
                 >
-                  <Pencil size={16} />
+                  <Pencil size={14} />
                 </button>
-
                 <button
                   onClick={() => handleDelete(product._id)}
-                  className="p-2 rounded-md hover:bg-red-50 transition text-red-500"
+                  disabled={deletingId === product._id}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition text-red-400 hover:text-red-600 disabled:opacity-40"
+                  title="Delete"
                 >
-                  <Trash2 size={16} />
+                  <Trash2 size={14} />
                 </button>
-
               </div>
-
             </div>
           ))}
-
         </div>
-      )}
+      ) : null}
+
+      <Toast toasts={toasts} />
 
     </div>
   );
 };
+
+function StatCard({ icon, label, value }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3.5 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0">
+        {icon}
+      </div>
+      <div>
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
+        <p className="text-base font-bold text-gray-900">{value}</p>
+      </div>
+    </div>
+  );
+}
 
 export default ProductList;

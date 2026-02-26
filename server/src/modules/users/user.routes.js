@@ -17,16 +17,15 @@ const adminOnly = (req, res, next) => {
 router.use(authMiddleware);
 router.use(adminOnly);
 
-// Create delivery boy
+// ── Static routes first (before any /:id) ──────────────────
 router.post("/", controller.createDeliveryBoy);
-
-// Get delivery boys
 router.get("/", controller.getDeliveryBoys);
+router.get("/inactive", controller.getInactiveDeliveryBoys);
 
-// Assign lanes
+// ── Dynamic /:id routes ────────────────────────────────────
+router.put("/:id", controller.updateDeliveryBoy);
 router.put("/:id/assign-lanes", controller.assignLanes);
-
-// Deactivate delivery boy
 router.put("/:id/deactivate", controller.deactivateDeliveryBoy);
+router.put("/:id/restore", controller.restoreDeliveryBoy);
 
 module.exports = router;

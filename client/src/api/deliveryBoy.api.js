@@ -9,5 +9,11 @@ export const createDeliveryBoy = (data) =>
 export const updateDeliveryBoy = (id, data) =>
   api.put(`/users/${id}`, data);
 
-export const deleteDeliveryBoy = (id) =>
-  api.delete(`/users/${id}`);
+export const deactivateDeliveryBoy = (id) =>
+  api.put(`/users/${id}/deactivate`);
+
+export const getInactiveDeliveryBoys = () =>
+  api.get("/users/inactive");
+
+export const restoreDeliveryBoy = (id) =>
+  api.put(`/users/${id}/restore`);

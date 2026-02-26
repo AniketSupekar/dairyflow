@@ -5,3 +5,6 @@ export const generateBill = (data) =>
 
 export const getCustomersByLane = (laneId) =>
   axios.get(`/customers/lane/${laneId}`);
+
+export const getBillsByCustomer = (customerId, params = {}) =>
+  axios.get(`/billing/customer/${customerId}`, { params });

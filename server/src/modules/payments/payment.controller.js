@@ -103,12 +103,44 @@ exports.getPaymentsByCustomer = async (req, res) => {
     const tenantId = req.tenantId;
     const { customerId } = req.params;
 
-    const payments = await Payment.find({
+    let { page = 1, limit = 10, month } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const filter = {
       tenantId,
       customerId,
-    }).sort({ date: -1 });
+      isActive: true,
+    };
 
-    return successResponse(res, "Payments fetched", payments);
+    // 🔹 Monthly filtering
+    if (month) {
+      const [year, monthNumber] = month.split("-");
+
+      const startDate = new Date(year, monthNumber - 1, 1);
+      const endDate = new Date(year, monthNumber, 0, 23, 59, 59);
+
+      filter.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const total = await Payment.countDocuments(filter);
+
+    const payments = await Payment.find(filter)
+      .sort({ date: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    return successResponse(res, "Payments fetched", {
+      data: payments,
+      pagination: {
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+        limit,
+      },
+    });
+
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Server error", 500);

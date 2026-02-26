@@ -17,6 +17,8 @@ router.post("/", (req, res, next) => {
   next();
 }, controller.createCustomer);
 
+router.get("/", authMiddleware, controller.getAllCustomers);
+
 // 🔹 Get customers by lane → admin + user
 router.get("/lane/:laneId", async (req, res, next) => {
   const { role, assignedLanes } = req.user;
@@ -46,6 +48,22 @@ router.get("/lane/:laneId", async (req, res, next) => {
     message: "Access denied",
   });
 });
+
+// Get inactive customers → admin only
+router.get("/inactive", (req, res, next) => {
+  if (req.user.role?.toLowerCase() !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied" });
+  }
+  next();
+}, controller.getInactiveCustomers);
+
+// Restore customer → admin only
+router.patch("/:id/restore", (req, res, next) => {
+  if (req.user.role?.toLowerCase() !== "admin") {
+    return res.status(403).json({ success: false, message: "Access denied" });
+  }
+  next();
+}, controller.restoreCustomer);
 
 // 🔹 Update customer → admin only
 router.put("/:id", (req, res, next) => {

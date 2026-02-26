@@ -192,3 +192,40 @@ exports.deactivateDeliveryBoy = async (req, res) => {
         });
     }
 };
+
+exports.getInactiveDeliveryBoys = async (req, res) => {
+  try {
+    const deliveryBoys = await User.find({
+      tenantId: req.user.tenantId,
+      role: "USER",
+      isActive: false,
+    })
+      .select("-passwordHash")
+      .populate("assignedLanes", "name");
+
+    res.json({ success: true, data: deliveryBoys });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.restoreDeliveryBoy = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      _id: req.params.id,
+      tenantId: req.user.tenantId,
+      role: "USER",
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Delivery boy not found" });
+    }
+
+    user.isActive = true;
+    await user.save();
+
+    res.json({ success: true, message: "Delivery boy restored successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
