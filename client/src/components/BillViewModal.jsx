@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Download, X, Printer, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import logo from "../assets/logo.png";
 
 export default function BillViewModal({ bill, customer, onClose, downloadBill }) {
   useEffect(() => {
@@ -18,9 +19,9 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
   const pending = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
 
   const statusConfig = {
-    PAID:    { label: "Paid",         icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 border-emerald-100" },
-    PARTIAL: { label: "Partial",      icon: Clock,        cls: "bg-amber-50 text-amber-700 border-amber-100" },
-    UNPAID:  { label: "Unpaid",       icon: AlertCircle,  cls: "bg-red-50 text-red-600 border-red-100" },
+    PAID: { label: "Paid", icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+    PARTIAL: { label: "Partial", icon: Clock, cls: "bg-amber-50 text-amber-700 border-amber-100" },
+    UNPAID: { label: "Unpaid", icon: AlertCircle, cls: "bg-red-50 text-red-600 border-red-100" },
   };
   const status = statusConfig[bill.status] || statusConfig.UNPAID;
   const StatusIcon = status.icon;
@@ -39,11 +40,13 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-black text-sm">D</span>
-            </div>
+            <img
+              src={logo}
+              alt="Siddhivinayak Dairy"
+              className="w-14 h-14 object-cover"
+            />
             <div>
-              <p className="text-base font-bold text-gray-900">DairyOS Invoice</p>
+              <p className="text-base font-bold text-gray-900">Invoice</p>
               <p className="text-xs text-gray-400 mt-0.5">
                 Generated {fmt(bill.createdAt || bill.generatedAt)}
               </p>
