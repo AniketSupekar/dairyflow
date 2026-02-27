@@ -1,168 +1,157 @@
 import { useEffect } from "react";
+import { Download, X, Printer, CheckCircle2, Clock, AlertCircle } from "lucide-react";
 
-export default function BillViewModal({
-  bill,
-  customer,
-  onClose,
-  downloadBill,
-}) {
+export default function BillViewModal({ bill, customer, onClose, downloadBill }) {
   useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === "Escape") onClose?.();
-    };
-
+    const handleEsc = (e) => { if (e.key === "Escape") onClose?.(); };
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
   if (!bill) return null;
 
-  const formatDate = (date) =>
-    new Date(date).toLocaleDateString("en-IN");
+  const fmt = (date) =>
+    new Date(date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
-  const formatCurrency = (value) =>
-    `₹${Number(value || 0).toFixed(2)}`;
+  const fmtCurrency = (value) => `₹${Number(value || 0).toFixed(2)}`;
 
-  const pendingAmount =
-    Number(bill.totalAmount) - Number(bill.amountPaid);
+  const pending = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
+
+  const statusConfig = {
+    PAID:    { label: "Paid",         icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+    PARTIAL: { label: "Partial",      icon: Clock,        cls: "bg-amber-50 text-amber-700 border-amber-100" },
+    UNPAID:  { label: "Unpaid",       icon: AlertCircle,  cls: "bg-red-50 text-red-600 border-red-100" },
+  };
+  const status = statusConfig[bill.status] || statusConfig.UNPAID;
+  const StatusIcon = status.icon;
+
+  const handlePrint = () => window.print();
 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-[60] px-4"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-start z-[60] px-4 py-6 overflow-y-auto"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto"
+        className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl my-auto"
       >
-        {/* Header */}
-        <div className="p-8 border-b bg-gray-50 rounded-t-3xl">
-          <div className="flex justify-between items-start">
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center flex-shrink-0">
+              <span className="text-white font-black text-sm">D</span>
+            </div>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">
-                INVOICE
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Generated on {formatDate(bill.createdAt)}
+              <p className="text-base font-bold text-gray-900">DairyOS Invoice</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Generated {fmt(bill.createdAt || bill.generatedAt)}
               </p>
             </div>
+          </div>
 
+          <div className="flex items-center gap-2">
+            <span className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${status.cls}`}>
+              <StatusIcon size={11} />
+              {status.label}
+            </span>
             <button
               onClick={onClose}
-              className="text-sm text-gray-500 hover:text-gray-900"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition text-gray-500"
             >
-              Close
+              <X size={14} />
             </button>
           </div>
         </div>
 
-        {/* Customer Section */}
-        <div className="p-8 border-b grid md:grid-cols-2 gap-6 text-sm text-gray-700">
+        {/* ── Meta section ─────────────────────────────────────────────────── */}
+        <div className="px-6 py-5 grid grid-cols-2 gap-6 border-b border-gray-100 bg-gray-50/50">
           <div>
-            <p className="text-gray-500 text-xs uppercase mb-1">
-              Billed To
-            </p>
-            <p className="font-semibold text-base">
-              {customer?.name || "Customer"}
-            </p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Billed To</p>
+            <p className="text-sm font-bold text-gray-900">{customer?.name || "Customer"}</p>
             {customer?.phone && (
-              <p>{customer.phone}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{customer.phone}</p>
             )}
           </div>
-
-          <div className="md:text-right">
-            <p>
-              <span className="font-medium">Billing Period:</span>
+          <div className="text-right">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Billing Period</p>
+            <p className="text-sm font-bold text-gray-900">
+              {fmt(bill.fromDate)} – {fmt(bill.toDate)}
             </p>
-            <p>
-              {formatDate(bill.fromDate)} —{" "}
-              {formatDate(bill.toDate)}
-            </p>
+            <span className={`inline-flex sm:hidden items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border mt-1 ${status.cls}`}>
+              <StatusIcon size={10} />
+              {status.label}
+            </span>
           </div>
         </div>
 
-        {/* Items Table */}
-        <div className="p-8">
-          <div className="overflow-x-auto border rounded-xl">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
-                <tr>
-                  <th className="p-4 text-left">Date</th>
-                  <th className="p-4 text-left">Product</th>
-                  <th className="p-4 text-right">Qty</th>
-                  <th className="p-4 text-right">Rate</th>
-                  <th className="p-4 text-right">Amount</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {bill.deliveryItems?.map((item, idx) => (
-                  <tr key={idx} className="border-t">
-                    <td className="p-4">
-                      {formatDate(item.date)}
-                    </td>
-                    <td className="p-4 font-medium">
-                      {item.productName}
-                    </td>
-                    <td className="p-4 text-right">
-                      {item.quantity}
-                    </td>
-                    <td className="p-4 text-right">
-                      {formatCurrency(item.rate)}
-                    </td>
-                    <td className="p-4 text-right font-semibold">
-                      {formatCurrency(item.amount)}
-                    </td>
+        {/* ── Items Table — horizontal scroll on mobile ─────────────────────── */}
+        <div className="px-6 py-5">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Delivery Items</p>
+          <div className="rounded-xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[480px]">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wide">Date</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-400 uppercase tracking-wide">Product</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wide">Qty</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wide">Rate</th>
+                    <th className="px-4 py-3 text-right text-[11px] font-bold text-gray-400 uppercase tracking-wide">Amount</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Totals */}
-          <div className="mt-10 max-w-md ml-auto space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">
-                Delivery Total
-              </span>
-              <span className="font-medium">
-                {formatCurrency(bill.deliveryTotal)}
-              </span>
-            </div>
-
-            <div className="flex justify-between">
-              <span className="text-gray-600">
-                Amount Paid
-              </span>
-              <span className="font-medium text-green-600">
-                {formatCurrency(bill.amountPaid)}
-              </span>
-            </div>
-
-            <div className="flex justify-between border-t pt-4 text-lg font-bold">
-              <span>Pending</span>
-              <span className="text-red-600">
-                {formatCurrency(pendingAmount)}
-              </span>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {bill.deliveryItems?.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(item.date)}</td>
+                      <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{item.productName}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{item.quantity}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{fmtCurrency(item.rate)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900">{fmtCurrency(item.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
-          {/* Footer Buttons */}
-          <div className="mt-10 flex gap-4">
-            <button
-              onClick={() => downloadBill(bill._id)}
-              className="flex-1 bg-gray-900 hover:bg-black text-white py-3 rounded-xl text-sm font-semibold transition"
-            >
-              Download PDF
-            </button>
-
-            <button
-              onClick={onClose}
-              className="flex-1 border border-gray-300 py-3 rounded-xl text-sm font-medium hover:bg-gray-50 transition"
-            >
-              Close
-            </button>
+          {/* ── Totals ───────────────────────────────────────────────────────── */}
+          <div className="mt-5 flex justify-end">
+            <div className="w-full max-w-xs space-y-2.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Delivery Total</span>
+                <span className="font-semibold text-gray-900">{fmtCurrency(bill.deliveryTotal)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Amount Paid</span>
+                <span className="font-semibold text-emerald-600">{fmtCurrency(bill.amountPaid)}</span>
+              </div>
+              <div className="flex justify-between text-sm border-t border-gray-100 pt-2.5">
+                <span className="font-bold text-gray-900">Pending</span>
+                <span className={`font-bold text-base ${pending > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                  {fmtCurrency(pending)}
+                </span>
+              </div>
+            </div>
           </div>
+        </div>
+
+        {/* ── Footer Actions ────────────────────────────────────────────────── */}
+        <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={() => downloadBill(bill._id)}
+            className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white py-2.5 rounded-xl text-sm font-semibold transition"
+          >
+            <Download size={14} />
+            Download PDF
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 flex items-center justify-center gap-2 border border-gray-200 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition text-gray-700"
+          >
+            <X size={14} />
+            Close
+          </button>
         </div>
       </div>
     </div>

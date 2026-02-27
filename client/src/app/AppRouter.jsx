@@ -13,6 +13,7 @@ import DeliveryBoyPage from "../features/deliveryBoys/DeliveryBoyPage";
 import DeliveryPage from "../features/deliveries/DeliveryPage";
 import BillingPage from "../features/billing/BillingPage";
 import AdminDashboard from "../features/dashboard/AdminDashboard";
+import UserDashboard from "../features/dashboard/UserDashboard";
 
 // ================= HomeRedirect =================
 const HomeRedirect = () => {
@@ -31,10 +32,6 @@ const HomeRedirect = () => {
 
   return null;
 };
-
-// ================= Dashboards =================
-// const AdminDashboard = () => <h1 className="p-4">Admin Dashboard</h1>;
-const UserDashboard = () => <h1 className="p-4">Delivery Screen</h1>;
 
 // ================= Router Wrapper =================
 const RouterContent = () => {
@@ -55,7 +52,6 @@ const RouterContent = () => {
           </ProtectedRoute>
         }
       >
-        <Route path="/admin" element={<AdminDashboard />} />
         <Route index element={<AdminDashboard />} />
         <Route path="products" element={<ProductList />} />
         <Route path="lanes" element={<LaneList />} />
@@ -66,7 +62,6 @@ const RouterContent = () => {
       </Route>
 
       {/* USER ROUTES */}
-      {/* USER ROUTES */}
       <Route
         path="/user"
         element={
@@ -75,9 +70,9 @@ const RouterContent = () => {
           </ProtectedRoute>
         }
       >
-        <Route index element={<DeliveryPage />} />
+        <Route index element={<UserDashboard />} />
+        <Route path="deliveries" element={<DeliveryPage />} />
       </Route>
-
 
       {/* Fallback */}
       <Route path="*" element={<HomeRedirect />} />

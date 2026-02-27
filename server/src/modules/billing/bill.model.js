@@ -22,6 +22,12 @@ const billSchema = new mongoose.Schema(
       required: true,
     },
 
+    // ✅ YYYY-MM string derived from fromDate — used for display and filtering
+    month: {
+      type: String,
+      index: true,
+    },
+
     fromDate: { type: Date, required: true },
     toDate: { type: Date, required: true },
 
@@ -37,7 +43,6 @@ const billSchema = new mongoose.Schema(
 
     deliveryTotal: { type: Number, required: true },
 
-    // ✅ Invoice amount = only this period total
     totalAmount: { type: Number, required: true },
 
     amountPaid: { type: Number, default: 0 },
