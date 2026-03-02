@@ -1,0 +1,91 @@
+name: CI / CD — Siddhivinayak Dairy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── BUILD CHECK — runs on every push and every PR ────────────────────────────
+  # If this fails, deploy is blocked. Catches broken code before it goes live.
+  ci:
+    name: Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Server — verify it loads without errors
+      - name: Install server dependencies
+        working-directory: server
+        run: npm install
+
+      - name: Verify server app loads
+        working-directory: server
+        run: node -e "require('./src/app.js'); console.log('✅ Server app.js OK');"
+        env:
+          NODE_ENV: test
+          MONGO_URI: mongodb://localhost:27017/test
+          JWT_SECRET: ci_test_secret_32_chars_minimum_xxx
+          CLIENT_URL: http://localhost:5173
+          PORT: 5000
+
+      # Client — full Vite production build
+      - name: Install client dependencies
+        working-directory: client
+        run: npm install
+
+      - name: Build Vite client
+        working-directory: client
+        run: npm run build
+        env:
+          VITE_API_URL: http://localhost:5000
+
+  # ── DEPLOY SERVER → VERCEL — only on push to main ────────────────────────────
+  deploy-server:
+    name: Deploy Server → Vercel
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy server to Vercel
+        working-directory: server
+        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_SERVER_PROJECT_ID }}
+
+  # ── DEPLOY CLIENT → VERCEL — only on push to main ────────────────────────────
+  deploy-client:
+    name: Deploy Client → Vercel
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy client to Vercel
+        working-directory: client
+        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_CLIENT_PROJECT_ID }}
