@@ -7,8 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── BUILD CHECK — runs on every push and every PR ────────────────────────────
-  # If this fails, deploy is blocked. Catches broken code before it goes live.
+  # ── BUILD CHECK ───────────────────────────────────────────────────────────────
   ci:
     name: Build Check
     runs-on: ubuntu-latest
@@ -22,7 +21,6 @@ jobs:
         with:
           node-version: 20
 
-      # Server — verify it loads without errors
       - name: Install server dependencies
         working-directory: server
         run: npm install
@@ -37,7 +35,6 @@ jobs:
           CLIENT_URL: https://dairy-app-live.vercel.app
           PORT: 5000
 
-      # Client — full Vite production build
       - name: Install client dependencies
         working-directory: client
         run: npm install
@@ -48,7 +45,7 @@ jobs:
         env:
           VITE_API_URL: https://dairy-app-backend-live.vercel.app
 
-  # ── DEPLOY SERVER → VERCEL — only on push to main ────────────────────────────
+  # ── DEPLOY SERVER ─────────────────────────────────────────────────────────────
   deploy-server:
     name: Deploy Server → Vercel
     needs: ci
@@ -63,13 +60,12 @@ jobs:
         run: npm install -g vercel
 
       - name: Deploy server to Vercel
-        working-directory: server
-        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes --cwd server
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_SERVER_PROJECT_ID }}
 
-  # ── DEPLOY CLIENT → VERCEL — only on push to main ────────────────────────────
+  # ── DEPLOY CLIENT ─────────────────────────────────────────────────────────────
   deploy-client:
     name: Deploy Client → Vercel
     needs: ci
@@ -84,8 +80,7 @@ jobs:
         run: npm install -g vercel
 
       - name: Deploy client to Vercel
-        working-directory: client
-        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes --cwd client
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_CLIENT_PROJECT_ID }}
