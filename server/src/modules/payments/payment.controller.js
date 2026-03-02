@@ -5,9 +5,7 @@ const { successResponse, errorResponse } = require("../../utils/response.util");
 const mongoose = require("mongoose");
 
 // ─── Helper: recalculate all bill statuses for a customer from scratch ────────
-// Called after any payment mutation (create / delete) for consistency.
 const recalculateBillAllocations = async (tenantId, customerId, session) => {
-  // 1. Reset all bills
   const bills = await Bill.find({ tenantId, customerId })
     .sort({ fromDate: 1 })
     .session(session);
@@ -18,16 +16,15 @@ const recalculateBillAllocations = async (tenantId, customerId, session) => {
     await bill.save({ session });
   }
 
-  // 2. Get all active payments sorted oldest-first (FIFO)
   const activePayments = await Payment.find({
     tenantId,
     customerId,
     isActive: true,
   })
     .sort({ date: 1 })
-    .session(session);
+    .session(session)
+    .lean(); // ✅ payments are read-only in this loop
 
-  // 3. Allocate each payment against bills in order
   for (const p of activePayments) {
     let remaining = p.amount;
 
@@ -52,9 +49,6 @@ const recalculateBillAllocations = async (tenantId, customerId, session) => {
   }
 };
 
-/**
- * 1️⃣  Create Payment
- */
 exports.createPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -63,7 +57,6 @@ exports.createPayment = async (req, res) => {
     const tenantId = req.tenantId;
     const { customerId, amount, paymentMode, date, note } = req.body;
 
-    // ── Validation ────────────────────────────────────────────────────────────
     if (!customerId || !amount || !date) {
       return errorResponse(res, "Missing required fields: customerId, amount, date", 400);
     }
@@ -72,8 +65,6 @@ exports.createPayment = async (req, res) => {
     if (isNaN(numAmount) || numAmount <= 0) {
       return errorResponse(res, "Amount must be a positive number", 400);
     }
-
-    // ── Edge case: max reasonable payment guard (₹10 lakh) ───────────────────
     if (numAmount > 1_000_000) {
       return errorResponse(res, "Amount exceeds maximum allowed (₹10,00,000)", 400);
     }
@@ -82,8 +73,6 @@ exports.createPayment = async (req, res) => {
     if (isNaN(paymentDate.getTime())) {
       return errorResponse(res, "Invalid payment date", 400);
     }
-
-    // ── Edge case: no future payments ─────────────────────────────────────────
     if (paymentDate > new Date()) {
       return errorResponse(res, "Payment date cannot be in the future", 400);
     }
@@ -92,14 +81,14 @@ exports.createPayment = async (req, res) => {
       _id: customerId,
       tenantId,
       isActive: true,
-    }).session(session);
+    })
+      .session(session)
+      .lean();
 
     if (!customer) {
       return errorResponse(res, "Active customer not found", 404);
     }
 
-    // ── Edge case: prevent accidental duplicate payments ──────────────────────
-    // Same customer, same amount, same date within last 10 seconds
     const tenSecondsAgo = new Date(Date.now() - 10_000);
     const duplicate = await Payment.findOne({
       tenantId,
@@ -108,7 +97,9 @@ exports.createPayment = async (req, res) => {
       date: paymentDate,
       isActive: true,
       createdAt: { $gte: tenSecondsAgo },
-    }).session(session);
+    })
+      .session(session)
+      .lean();
 
     if (duplicate) {
       return errorResponse(
@@ -118,7 +109,6 @@ exports.createPayment = async (req, res) => {
       );
     }
 
-    // ── Create payment ────────────────────────────────────────────────────────
     const [payment] = await Payment.create(
       [
         {
@@ -133,7 +123,6 @@ exports.createPayment = async (req, res) => {
       { session }
     );
 
-    // ── Recalculate all bill allocations deterministically ────────────────────
     await recalculateBillAllocations(tenantId, customerId, session);
 
     await session.commitTransaction();
@@ -148,9 +137,6 @@ exports.createPayment = async (req, res) => {
   }
 };
 
-/**
- * 2️⃣  Get Payments by Customer (paginated + month filter)
- */
 exports.getPaymentsByCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -175,7 +161,8 @@ exports.getPaymentsByCustomer = async (req, res) => {
       Payment.find(filter)
         .sort({ date: -1 })
         .skip((page - 1) * limit)
-        .limit(limit),
+        .limit(limit)
+        .lean(), // ✅ read-only list
     ]);
 
     return successResponse(res, "Payments fetched", {
@@ -188,10 +175,6 @@ exports.getPaymentsByCustomer = async (req, res) => {
   }
 };
 
-/**
- * 3️⃣  Delete (reverse) Payment
- *   Uses the shared recalculate helper — no in-loop sort mutation bug.
- */
 exports.deletePayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -210,11 +193,9 @@ exports.deletePayment = async (req, res) => {
       return errorResponse(res, "Payment not found", 404);
     }
 
-    // Soft-delete
     payment.isActive = false;
     await payment.save({ session });
 
-    // Recalculate all bills from scratch
     await recalculateBillAllocations(tenantId, payment.customerId.toString(), session);
 
     await session.commitTransaction();

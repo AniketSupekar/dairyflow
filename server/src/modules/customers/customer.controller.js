@@ -2,110 +2,55 @@ const Customer = require("./customer.model");
 const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 const Bill = require("../billing/bill.model");
 
-/**
- * Create Customer
- */
 exports.createCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
+    const { name, phone, address, laneId, subscriptions, openingBalance } = req.body;
 
-    const {
-      name,
-      phone,
-      address,
-      laneId,
-      subscriptions,
-      openingBalance,
-    } = req.body;
-
-    // 🔥 Phone must be unique per tenant
-    const existingCustomer = await Customer.findOne({
-      tenantId,
-      phone,
-    });
-
+    const existingCustomer = await Customer.findOne({ tenantId, phone }).lean();
     if (existingCustomer) {
-      return res.status(400).json({
-        success: false,
-        message: "Customer with this phone already exists",
-      });
+      return res.status(400).json({ success: false, message: "Customer with this phone already exists" });
     }
 
     const customer = await Customer.create({
-      tenantId,
-      name,
-      phone,
-      address,
-      laneId,
-      subscriptions,
+      tenantId, name, phone, address, laneId, subscriptions,
       openingBalance: openingBalance || 0,
     });
 
-    res.status(201).json({
-      success: true,
-      message: "Customer created successfully",
-      data: customer,
-    });
+    res.status(201).json({ success: true, message: "Customer created successfully", data: customer });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-
-/**
- * Get Customers By Lane
- */
 exports.getCustomersByLane = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { laneId } = req.params;
 
-    const customers = await Customer.find({
-      tenantId,
-      laneId,
-      isActive: true,
-    })
+    const customers = await Customer.find({ tenantId, laneId, isActive: true })
       .populate("subscriptions.productId", "name rate")
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean(); // ✅ read-only list
 
-    res.json({
-      success: true,
-      data: customers,
-    });
+    res.json({ success: true, data: customers });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-
-/**
- * Update Customer
- */
 exports.updateCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { id } = req.params;
     const { phone } = req.body;
 
-    // 🔥 If phone is being updated → validate uniqueness
     if (phone) {
       const existingCustomer = await Customer.findOne({
-        tenantId,
-        phone,
-        _id: { $ne: id },
-      });
-
+        tenantId, phone, _id: { $ne: id },
+      }).lean();
       if (existingCustomer) {
-        return res.status(400).json({
-          success: false,
-          message: "Customer with this phone already exists",
-        });
+        return res.status(400).json({ success: false, message: "Customer with this phone already exists" });
       }
     }
 
@@ -116,44 +61,25 @@ exports.updateCustomer = async (req, res) => {
     );
 
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
+      return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    res.json({
-      success: true,
-      message: "Customer updated successfully",
-      data: customer,
-    });
+    res.json({ success: true, message: "Customer updated successfully", data: customer });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-
-/**
- * Soft Delete Customer
- */
 exports.deleteCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { id } = req.params;
 
     const customer = await Customer.findOne({ _id: id, tenantId });
-
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
+      return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    // 🔥 Only block if unpaid bills exist
     const unpaidBillExists = await Bill.exists({
       tenantId,
       customerId: id,
@@ -161,25 +87,15 @@ exports.deleteCustomer = async (req, res) => {
     });
 
     if (unpaidBillExists) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot deactivate customer with unpaid bills",
-      });
+      return res.status(400).json({ success: false, message: "Cannot deactivate customer with unpaid bills" });
     }
 
-    // ✅ We ALLOW deactivation even if delivery history exists
     customer.isActive = false;
     await customer.save();
 
-    res.json({
-      success: true,
-      message: "Customer deactivated successfully",
-    });
+    res.json({ success: true, message: "Customer deactivated successfully" });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
@@ -191,10 +107,7 @@ exports.getAllCustomers = async (req, res) => {
     page = parseInt(page);
     limit = parseInt(limit);
 
-    const filter = {
-      tenantId,
-      isActive: true,
-    };
+    const filter = { tenantId, isActive: true };
 
     if (search) {
       filter.$or = [
@@ -203,36 +116,26 @@ exports.getAllCustomers = async (req, res) => {
       ];
     }
 
-    const total = await Customer.countDocuments(filter);
-
-    const customers = await Customer.find(filter)
-      .sort({ name: 1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate("laneId", "name");
+    const [total, customers] = await Promise.all([
+      Customer.countDocuments(filter),
+      Customer.find(filter)
+        .sort({ name: 1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate("laneId", "name")
+        .lean(), // ✅ read-only list
+    ]);
 
     res.json({
       success: true,
       data: customers,
-      pagination: {
-        total,
-        page,
-        pages: Math.ceil(total / limit),
-        limit,
-      },
+      pagination: { total, page, pages: Math.ceil(total / limit), limit },
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-/**
- * Restore (Reactivate) Customer
- */
 exports.restoreCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -245,25 +148,15 @@ exports.restoreCustomer = async (req, res) => {
     );
 
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
+      return res.status(404).json({ success: false, message: "Customer not found" });
     }
 
-    res.json({
-      success: true,
-      message: "Customer restored successfully",
-      data: customer,
-    });
+    res.json({ success: true, message: "Customer restored successfully", data: customer });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-/**
- * Get Inactive Customers
- */
 exports.getInactiveCustomers = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -275,7 +168,8 @@ exports.getInactiveCustomers = async (req, res) => {
     const customers = await Customer.find(filter)
       .sort({ name: 1 })
       .populate("laneId", "name")
-      .populate("subscriptions.productId", "name");
+      .populate("subscriptions.productId", "name")
+      .lean(); // ✅ read-only list
 
     res.json({ success: true, data: customers });
   } catch (error) {

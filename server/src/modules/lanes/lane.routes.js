@@ -1,33 +1,26 @@
 const express = require("express");
 const router = express.Router();
-
-const authMiddleware = require("../../middleware/auth.middleware");
 const {
   createLane,
   getLanes,
+  getInactiveLanes,
   updateLane,
   deleteLane,
+  restoreLane,
 } = require("./lane.controller");
 
-/**
- * Role check inline (since you don't have role middleware yet)
- */
-const adminOnly = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({
-      success: false,
-      message: "Access denied",
-    });
-  }
-  next();
-};
+// Auth + admin check is handled by app.js (authMiddleware on /api)
+// and each route file can add role checks as needed.
+// Lanes are admin-only — enforced via adminOnly in app-level or here if needed.
 
-router.use(authMiddleware);
-router.use(adminOnly);
-
-router.post("/", createLane);
+// ── Static routes first (before /:id) ────────────────────────────────────────
 router.get("/", getLanes);
+router.get("/inactive", getInactiveLanes);
+router.post("/", createLane);
+
+// ── Dynamic /:id routes ───────────────────────────────────────────────────────
 router.put("/:id", updateLane);
+router.put("/:id/restore", restoreLane);
 router.delete("/:id", deleteLane);
 
 module.exports = router;

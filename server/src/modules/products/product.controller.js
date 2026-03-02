@@ -1,7 +1,6 @@
 const Product = require("./product.model");
 const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 
-// Create Product
 exports.createProduct = async (req, res, next) => {
   try {
     const { name, unit, rate } = req.body;
@@ -13,96 +12,95 @@ exports.createProduct = async (req, res, next) => {
       rate,
     });
 
-    res.status(201).json({
-      success: true,
-      data: product,
-    });
+    res.status(201).json({ success: true, data: product });
   } catch (error) {
-
     if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Product name already exists",
-      });
+      return res.status(400).json({ success: false, message: "Product name already exists" });
     }
-
     next(error);
   }
 };
 
-// Get All Products
 exports.getProducts = async (req, res, next) => {
   try {
-    const products = await Product.find({
-      tenantId: req.user.tenantId,
-      isActive: true,
-    });
-
-    res.json({
-      success: true,
-      data: products,
-    });
+    const products = await Product.find({ tenantId: req.user.tenantId, isActive: true }).lean();
+    res.json({ success: true, data: products });
   } catch (error) {
     next(error);
   }
 };
 
-// Update Product
+exports.getInactiveProducts = async (req, res, next) => {
+  try {
+    const products = await Product.find({ tenantId: req.user.tenantId, isActive: false })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    res.json({ success: true, data: products });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.updateProduct = async (req, res, next) => {
   try {
     const product = await Product.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        tenantId: req.user.tenantId,
-      },
+      { _id: req.params.id, tenantId: req.user.tenantId },
       req.body,
       { new: true, runValidators: true }
     );
 
-    res.json({
-      success: true,
-      data: product,
-    });
-  } catch (error) {
-
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: "Product name already exists",
-      });
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
     }
 
+    res.json({ success: true, data: product });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: "Product name already exists" });
+    }
     next(error);
   }
 };
 
-// Soft Delete Product
+// Soft delete — blocked if product has any delivery records
 exports.deleteProduct = async (req, res, next) => {
   try {
     const tenantId = req.user.tenantId;
     const productId = req.params.id;
 
-    const deliveryExists = await DeliveryRecord.exists({
-      tenantId,
-      productId,
-    });
-
-    if (deliveryExists) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete product used in deliveries",
-      });
+    const product = await Product.findOne({ _id: productId, tenantId });
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    await Product.findOneAndUpdate(
-      { _id: productId, tenantId },
-      { isActive: false }
+    const deliveryExists = await DeliveryRecord.exists({ tenantId, productId });
+    if (deliveryExists) {
+      return res.status(400).json({ success: false, message: "Cannot deactivate product used in deliveries" });
+    }
+
+    product.isActive = false;
+    await product.save();
+
+    res.json({ success: true, message: "Product deactivated successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.restoreProduct = async (req, res, next) => {
+  try {
+    const product = await Product.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.user.tenantId },
+      { isActive: true },
+      { new: true }
     );
 
-    res.json({
-      success: true,
-      message: "Product deleted",
-    });
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    res.json({ success: true, message: "Product restored successfully", data: product });
   } catch (error) {
     next(error);
   }

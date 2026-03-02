@@ -2,20 +2,15 @@ const Bill = require("./bill.model");
 const Customer = require("../customers/customer.model");
 const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
 const Payment = require("../payments/payment.model");
-
 const { successResponse, errorResponse } = require("../../utils/response.util");
-
 const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
 
-// ─── Helper: derive YYYY-MM string from a Date ────────────────────────────────
 const toMonthString = (date) => {
   const d = new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-// ─── Helper: compute advance balance without trusting stored amountPaid ───────
-// Advance = totalPaid - totalBilled (across ALL bills). Safe and deterministic.
 const computeAdvance = (allBills, allPayments) => {
   const totalBilled = allBills.reduce((s, b) => s + b.totalAmount, 0);
   const totalPaid = allPayments.reduce((s, p) => s + p.amount, 0);
@@ -23,14 +18,6 @@ const computeAdvance = (allBills, allPayments) => {
   return diff > 0 ? Math.round(diff * 100) / 100 : 0;
 };
 
-/**
- * 1️⃣  Generate Bill
- *   - Validates date range (from < to, not future)
- *   - Checks overlapping bills
- *   - Derives month field from fromDate
- *   - Auto-consumes advance balance (deterministic, not from stored amountPaid)
- *   - Prevents generating a ₹0 bill
- */
 exports.generateBill = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -48,25 +35,14 @@ exports.generateBill = async (req, res) => {
     const end = new Date(toDate);
     end.setUTCHours(23, 59, 59, 999);
 
-    // ── Edge case: from must be before to ────────────────────────────────────
-    if (start >= end) {
-      return errorResponse(res, "fromDate must be before toDate", 400);
-    }
-
-    // ── Edge case: no future bills ────────────────────────────────────────────
-    if (end > new Date()) {
-      return errorResponse(res, "Cannot generate bill for future dates", 400);
-    }
+    if (start >= end) return errorResponse(res, "fromDate must be before toDate", 400);
+    if (end > new Date()) return errorResponse(res, "Cannot generate bill for future dates", 400);
 
     const customer = await Customer.findOne({ _id: customerId, tenantId }).session(session);
-    if (!customer) {
-      return errorResponse(res, "Customer not found", 404);
-    }
+    if (!customer) return errorResponse(res, "Customer not found", 404);
 
-    // ── Edge case: overlapping bill ───────────────────────────────────────────
     const overlappingBill = await Bill.findOne({
-      tenantId,
-      customerId,
+      tenantId, customerId,
       fromDate: { $lte: end },
       toDate: { $gte: start },
     }).session(session);
@@ -79,41 +55,25 @@ exports.generateBill = async (req, res) => {
       );
     }
 
-    // ── Fetch deliveries for this period ──────────────────────────────────────
     const deliveries = await DeliveryRecord.find({
-      tenantId,
-      customerId,
+      tenantId, customerId,
       date: { $gte: start, $lte: end },
       status: "DELIVERED",
       isActive: true,
-    })
-      .populate("productId")
-      .session(session);
+    }).populate("productId").session(session).lean();
 
     const deliveryItems = deliveries.map((d) => {
       const amount = Math.round(d.quantity * d.rate * 100) / 100;
-      return {
-        date: d.date,
-        productName: d.productId?.name || "Product",
-        quantity: d.quantity,
-        rate: d.rate,
-        amount,
-      };
+      return { date: d.date, productName: d.productId?.name || "Product", quantity: d.quantity, rate: d.rate, amount };
     });
 
-    const deliveryTotal = Math.round(
-      deliveryItems.reduce((sum, item) => sum + item.amount, 0) * 100
-    ) / 100;
+    const deliveryTotal = Math.round(deliveryItems.reduce((sum, item) => sum + item.amount, 0) * 100) / 100;
 
-    // ── Edge case: no deliveries in range ─────────────────────────────────────
-    if (deliveryTotal === 0) {
-      return errorResponse(res, "No delivered items found for this period", 400);
-    }
+    if (deliveryTotal === 0) return errorResponse(res, "No delivered items found for this period", 400);
 
-    // ── Compute advance deterministically ────────────────────────────────────
     const [allBills, allPayments] = await Promise.all([
-      Bill.find({ tenantId, customerId }).session(session),
-      Payment.find({ tenantId, customerId, isActive: true }).session(session),
+      Bill.find({ tenantId, customerId }).session(session).lean(),
+      Payment.find({ tenantId, customerId, isActive: true }).session(session).lean(),
     ]);
 
     const advanceAvailable = computeAdvance(allBills, allPayments);
@@ -124,56 +84,38 @@ exports.generateBill = async (req, res) => {
     if (amountPaid >= deliveryTotal) status = "PAID";
     else if (amountPaid > 0) status = "PARTIAL";
 
-    const bill = await Bill.create(
-      [
-        {
-          tenantId,
-          customerId,
-          laneId: customer.laneId,
-          fromDate: start,
-          toDate: end,
-          month: toMonthString(start), // ✅ always set month
-          deliveryItems,
-          deliveryTotal,
-          totalAmount: deliveryTotal,
-          amountPaid,
-          status,
-        },
-      ],
-      { session }
-    );
+    const bill = await Bill.create([{
+      tenantId, customerId,
+      laneId: customer.laneId,
+      fromDate: start, toDate: end,
+      month: toMonthString(start),
+      deliveryItems, deliveryTotal,
+      totalAmount: deliveryTotal,
+      amountPaid, status,
+    }], { session });
 
     await session.commitTransaction();
     session.endSession();
-
     return successResponse(res, "Bill generated successfully", bill[0]);
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
     console.error(err);
-    if (err.code === 11000) {
-      return errorResponse(res, "Bill already exists for this period", 400);
-    }
+    if (err.code === 11000) return errorResponse(res, "Bill already exists for this period", 400);
     return errorResponse(res, "Server error", 500);
   }
 };
 
-/**
- * 2️⃣  Download Bill PDF
- */
 exports.downloadBillPdf = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { id } = req.params;
 
-    const bill = await Bill.findOne({ _id: id, tenantId }).populate("customerId");
-    if (!bill) {
-      return errorResponse(res, "Bill not found", 404);
-    }
+    const bill = await Bill.findOne({ _id: id, tenantId }).populate("customerId").lean();
+    if (!bill) return errorResponse(res, "Bill not found", 404);
 
     const doc = new PDFDocument({ margin: 40 });
     const buffers = [];
-
     doc.on("data", buffers.push.bind(buffers));
     doc.on("end", () => {
       const pdfData = Buffer.concat(buffers);
@@ -185,7 +127,6 @@ exports.downloadBillPdf = async (req, res) => {
     });
 
     const fmt = (d) => new Date(d).toLocaleDateString("en-IN");
-
     doc.fontSize(20).font("Helvetica-Bold").text("DAIRY BILL", { align: "center" });
     doc.moveDown(0.5);
     doc.fontSize(11).font("Helvetica");
@@ -193,19 +134,14 @@ exports.downloadBillPdf = async (req, res) => {
     doc.text(`Period: ${fmt(bill.fromDate)} – ${fmt(bill.toDate)}`);
     doc.text(`Generated: ${fmt(bill.generatedAt || bill.createdAt)}`);
     doc.moveDown();
-
-    // Table header
     doc.font("Helvetica-Bold").text("Date           Product              Qty    Rate    Amount");
     doc.font("Helvetica");
     doc.moveDown(0.3);
     doc.moveTo(40, doc.y).lineTo(560, doc.y).stroke();
     doc.moveDown(0.3);
-
     bill.deliveryItems.forEach((item) => {
-      const line = `${fmt(item.date).padEnd(14)} ${item.productName.padEnd(20)} ${String(item.quantity).padEnd(6)} ${String(item.rate).padEnd(7)} ₹${item.amount}`;
-      doc.text(line);
+      doc.text(`${fmt(item.date).padEnd(14)} ${item.productName.padEnd(20)} ${String(item.quantity).padEnd(6)} ${String(item.rate).padEnd(7)} ₹${item.amount}`);
     });
-
     doc.moveDown();
     doc.moveTo(40, doc.y).lineTo(560, doc.y).stroke();
     doc.moveDown(0.3);
@@ -213,7 +149,6 @@ exports.downloadBillPdf = async (req, res) => {
     doc.text(`Amount Paid:    ₹${bill.amountPaid}`);
     doc.moveDown();
     doc.font("Helvetica-Bold").fontSize(13).text(`Pending: ₹${bill.totalAmount - bill.amountPaid}`);
-
     doc.end();
   } catch (err) {
     console.error(err);
@@ -221,49 +156,27 @@ exports.downloadBillPdf = async (req, res) => {
   }
 };
 
-/**
- * 3️⃣  Bill Summary (date range)
- */
 exports.getBillSummary = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { customerId } = req.params;
     const { fromDate, toDate } = req.query;
 
-    if (!fromDate || !toDate) {
-      return errorResponse(res, "fromDate and toDate required", 400);
-    }
+    if (!fromDate || !toDate) return errorResponse(res, "fromDate and toDate required", 400);
 
-    const customer = await Customer.findOne({ _id: customerId, tenantId });
-    if (!customer) {
-      return errorResponse(res, "Customer not found", 404);
-    }
+    const customer = await Customer.findOne({ _id: customerId, tenantId }).lean();
+    if (!customer) return errorResponse(res, "Customer not found", 404);
 
     const start = new Date(fromDate);
     const end = new Date(toDate);
 
     const [deliveryAgg, paymentAgg] = await Promise.all([
       DeliveryRecord.aggregate([
-        {
-          $match: {
-            tenantId: new mongoose.Types.ObjectId(tenantId),
-            customerId: new mongoose.Types.ObjectId(customerId),
-            date: { $gte: start, $lte: end },
-            status: "DELIVERED",
-            isActive: true,
-          },
-        },
+        { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), customerId: new mongoose.Types.ObjectId(customerId), date: { $gte: start, $lte: end }, status: "DELIVERED", isActive: true } },
         { $group: { _id: null, total: { $sum: { $multiply: ["$quantity", "$rate"] } } } },
       ]),
       Payment.aggregate([
-        {
-          $match: {
-            tenantId: new mongoose.Types.ObjectId(tenantId),
-            customerId: new mongoose.Types.ObjectId(customerId),
-            date: { $gte: start, $lte: end },
-            isActive: true,
-          },
-        },
+        { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), customerId: new mongoose.Types.ObjectId(customerId), date: { $gte: start, $lte: end }, isActive: true } },
         { $group: { _id: null, total: { $sum: "$amount" } } },
       ]),
     ]);
@@ -272,30 +185,20 @@ exports.getBillSummary = async (req, res) => {
     const paymentTotal = paymentAgg[0]?.total || 0;
     const finalBalance = customer.openingBalance + deliveryTotal - paymentTotal;
 
-    return successResponse(res, "Bill summary fetched", {
-      openingBalance: customer.openingBalance,
-      deliveryTotal,
-      paymentTotal,
-      finalBalance,
-    });
+    return successResponse(res, "Bill summary fetched", { openingBalance: customer.openingBalance, deliveryTotal, paymentTotal, finalBalance });
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Server error", 500);
   }
 };
 
-/**
- * 4️⃣  Customer Ledger
- */
 exports.getCustomerLedger = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { customerId } = req.params;
 
-    const customer = await Customer.findOne({ _id: customerId, tenantId });
-    if (!customer) {
-      return errorResponse(res, "Customer not found", 404);
-    }
+    const customer = await Customer.findOne({ _id: customerId, tenantId }).lean();
+    if (!customer) return errorResponse(res, "Customer not found", 404);
 
     const [deliveries, payments] = await Promise.all([
       DeliveryRecord.find({ tenantId, customerId, isActive: true }).lean(),
@@ -303,18 +206,8 @@ exports.getCustomerLedger = async (req, res) => {
     ]);
 
     const ledger = [
-      ...deliveries.map((d) => ({
-        type: "DELIVERY",
-        date: d.date,
-        amount: d.quantity * d.rate,
-        refId: d._id,
-      })),
-      ...payments.map((p) => ({
-        type: "PAYMENT",
-        date: p.date,
-        amount: -p.amount,
-        refId: p._id,
-      })),
+      ...deliveries.map((d) => ({ type: "DELIVERY", date: d.date, amount: d.quantity * d.rate, refId: d._id })),
+      ...payments.map((p) => ({ type: "PAYMENT", date: p.date, amount: -p.amount, refId: p._id })),
     ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
     let runningBalance = customer.openingBalance;
@@ -323,59 +216,34 @@ exports.getCustomerLedger = async (req, res) => {
       return { ...entry, runningBalance: Math.round(runningBalance * 100) / 100 };
     });
 
-    return successResponse(res, "Ledger fetched", {
-      openingBalance: customer.openingBalance,
-      ledger: finalLedger,
-      finalBalance: Math.round(runningBalance * 100) / 100,
-    });
+    return successResponse(res, "Ledger fetched", { openingBalance: customer.openingBalance, ledger: finalLedger, finalBalance: Math.round(runningBalance * 100) / 100 });
   } catch (error) {
     console.error(error);
     return errorResponse(res, "Server error", 500);
   }
 };
 
-/**
- * 5️⃣  Lane Summary
- */
 exports.getLaneSummary = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { laneId, month, year } = req.query;
 
-    if (!laneId || !month || !year) {
-      return errorResponse(res, "laneId, month and year required", 400);
-    }
+    if (!laneId || !month || !year) return errorResponse(res, "laneId, month and year required", 400);
 
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59);
 
     const customers = await Customer.find({ tenantId, laneId }).lean();
     const customerIds = customers.map((c) => c._id);
-
     const tenantObjId = new mongoose.Types.ObjectId(tenantId);
 
     const [deliveryAgg, paymentAgg] = await Promise.all([
       DeliveryRecord.aggregate([
-        {
-          $match: {
-            tenantId: tenantObjId,
-            customerId: { $in: customerIds },
-            date: { $gte: startDate, $lte: endDate },
-            status: "DELIVERED",
-            isActive: true,
-          },
-        },
+        { $match: { tenantId: tenantObjId, customerId: { $in: customerIds }, date: { $gte: startDate, $lte: endDate }, status: "DELIVERED", isActive: true } },
         { $group: { _id: "$customerId", total: { $sum: { $multiply: ["$quantity", "$rate"] } } } },
       ]),
       Payment.aggregate([
-        {
-          $match: {
-            tenantId: tenantObjId,
-            customerId: { $in: customerIds },
-            date: { $gte: startDate, $lte: endDate },
-            isActive: true,
-          },
-        },
+        { $match: { tenantId: tenantObjId, customerId: { $in: customerIds }, date: { $gte: startDate, $lte: endDate }, isActive: true } },
         { $group: { _id: "$customerId", total: { $sum: "$amount" } } },
       ]),
     ]);
@@ -387,14 +255,7 @@ exports.getLaneSummary = async (req, res) => {
       const deliveryTotal = deliveryMap[customer._id.toString()] || 0;
       const paymentTotal = paymentMap[customer._id.toString()] || 0;
       const finalBalance = customer.openingBalance + deliveryTotal - paymentTotal;
-      return {
-        customerId: customer._id,
-        customerName: customer.name,
-        openingBalance: customer.openingBalance,
-        deliveryTotal,
-        paymentTotal,
-        finalBalance: Math.round(finalBalance * 100) / 100,
-      };
+      return { customerId: customer._id, customerName: customer.name, openingBalance: customer.openingBalance, deliveryTotal, paymentTotal, finalBalance: Math.round(finalBalance * 100) / 100 };
     });
 
     return successResponse(res, "Lane summary fetched", summary);
@@ -404,17 +265,14 @@ exports.getLaneSummary = async (req, res) => {
   }
 };
 
-/**
- * 6️⃣  Customer Financial Summary (for panel header cards)
- */
 exports.getCustomerFinancialSummary = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { customerId } = req.params;
 
     const [bills, payments] = await Promise.all([
-      Bill.find({ tenantId, customerId }),
-      Payment.find({ tenantId, customerId, isActive: true }),
+      Bill.find({ tenantId, customerId }).lean(),
+      Payment.find({ tenantId, customerId, isActive: true }).lean(),
     ]);
 
     const totalBilled = bills.reduce((s, b) => s + b.totalAmount, 0);
@@ -433,9 +291,6 @@ exports.getCustomerFinancialSummary = async (req, res) => {
   }
 };
 
-/**
- * 7️⃣  Bills by Customer (paginated + month filter)
- */
 exports.getBillsByCustomer = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -455,10 +310,7 @@ exports.getBillsByCustomer = async (req, res) => {
 
     const [total, bills] = await Promise.all([
       Bill.countDocuments(filter),
-      Bill.find(filter)
-        .sort({ fromDate: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit),
+      Bill.find(filter).sort({ fromDate: -1 }).skip((page - 1) * limit).limit(limit).lean(),
     ]);
 
     return successResponse(res, "Bills fetched successfully", {
@@ -471,17 +323,14 @@ exports.getBillsByCustomer = async (req, res) => {
   }
 };
 
-/**
- * 8️⃣  Customer Outstanding
- */
 exports.getCustomerOutstanding = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { customerId } = req.params;
 
     const [bills, payments] = await Promise.all([
-      Bill.find({ tenantId, customerId }),
-      Payment.find({ tenantId, customerId, isActive: true }),
+      Bill.find({ tenantId, customerId }).lean(),
+      Payment.find({ tenantId, customerId, isActive: true }).lean(),
     ]);
 
     const totalBilled = bills.reduce((s, b) => s + b.totalAmount, 0);
@@ -493,6 +342,59 @@ exports.getCustomerOutstanding = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    return errorResponse(res, "Server error", 500);
+  }
+};
+
+// ─── Dashboard Stats ──────────────────────────────────────────────────────────
+// Single endpoint that returns all 4 dashboard numbers in one DB round-trip.
+// Uses Promise.all so all 4 queries run in parallel — fast.
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const tenantId = req.tenantId;
+    const tenantObjId = new mongoose.Types.ObjectId(tenantId);
+
+    // Today's date range (UTC midnight to end of day)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setUTCHours(23, 59, 59, 999);
+
+    const [
+      totalCustomers,
+      totalLanes,
+      deliveriesToday,
+      pendingBills,
+    ] = await Promise.all([
+      // Count active customers
+      Customer.countDocuments({ tenantId, isActive: true }),
+
+      // Count active lanes — import Lane model
+      require("../lanes/lane.model").countDocuments({ tenantId, isActive: true }),
+
+      // Count DELIVERED records for today across all lanes
+      DeliveryRecord.countDocuments({
+        tenantId,
+        date: { $gte: todayStart, $lte: todayEnd },
+        status: "DELIVERED",
+        isActive: true,
+      }),
+
+      // Count bills that still have outstanding balance
+      Bill.countDocuments({
+        tenantId,
+        status: { $in: ["UNPAID", "PARTIAL"] },
+      }),
+    ]);
+
+    return successResponse(res, "Dashboard stats fetched", {
+      totalCustomers,
+      totalLanes,
+      deliveriesToday,
+      pendingBills,
+    });
+  } catch (error) {
+    console.error("DASHBOARD STATS ERROR:", error);
     return errorResponse(res, "Server error", 500);
   }
 };
