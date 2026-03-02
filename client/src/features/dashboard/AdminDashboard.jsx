@@ -77,7 +77,7 @@ const AdminDashboard = () => {
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium text-gray-400 mb-1">{today}</p>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight leading-none">
+          <h1 className="text-xl font-bold text-gray-900 tracking-tight leading-none">
             {getGreeting()}{user?.name ? `, ${user.name.split(" ")[0]}` : ""} 👋
           </h1>
         </div>
