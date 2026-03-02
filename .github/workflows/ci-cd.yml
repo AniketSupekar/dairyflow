@@ -64,10 +64,10 @@ jobs:
 
       - name: Deploy server to Vercel
         working-directory: server
-        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        run: vercel --prod --token=${{ secrets.vcp_0wQWM0USJPo72vGDqSQNlSNxDIQHpAyOtIcPi4LjxA2bFc3nRB2A8MsF }} --yes
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_SERVER_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.team_A9NsEe37wKlnOxs7nesAvIhi }}
+          VERCEL_PROJECT_ID: ${{ secrets.prj_KMVEJ4hjNIVBXYmhvODzs0qhoYxH }}
 
   # ── DEPLOY CLIENT → VERCEL — only on push to main ────────────────────────────
   deploy-client:
@@ -85,7 +85,7 @@ jobs:
 
       - name: Deploy client to Vercel
         working-directory: client
-        run: vercel --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        run: vercel --prod --token=${{ secrets.vcp_0wQWM0USJPo72vGDqSQNlSNxDIQHpAyOtIcPi4LjxA2bFc3nRB2A8MsF }} --yes
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_CLIENT_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.team_A9NsEe37wKlnOxs7nesAvIhi }}
+          VERCEL_PROJECT_ID: ${{ secrets.prj_qVw3Or58JFRQ5EJdCzi4YDUnd65A }}
