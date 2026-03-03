@@ -1,16 +1,15 @@
 const express = require("express");
 const router = express.Router();
 const controller = require("./deliveryRecord.controller");
-const auth = require("../../middleware/auth.middleware");
 
-// ── Static routes first (before /:id) ────────────────────────────────────────
-// Returns today's delivered count for the logged-in user's assigned lanes
-router.get("/my-stats", auth, controller.getMyDeliveryStats);
+// ── Static routes FIRST ───────────────────────────────────────────────────────
+router.get ("/my-stats",      controller.getMyDeliveryStats);
+router.get ("/daily-summary", controller.getDailySummary);    // NEW — admin only
+router.get ("/",              controller.getDeliveriesByDate);
 
-// ── Existing routes ───────────────────────────────────────────────────────────
-router.post("/", auth, controller.upsertDeliveryRecord);
-router.get("/", auth, controller.getDeliveriesByDate);
-router.put("/:id", auth, controller.updateDeliveryRecord);
-router.delete("/:id", auth, controller.deleteDeliveryRecord);
+// ── Dynamic /:id routes LAST ──────────────────────────────────────────────────
+router.post  ("/",    controller.upsertDeliveryRecord);
+router.put   ("/:id", controller.updateDeliveryRecord);
+router.delete("/:id", controller.deleteDeliveryRecord);
 
 module.exports = router;
