@@ -15,8 +15,9 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
   const [monthFilter, setMonthFilter] = useState("");
   const [showAllBills, setShowAllBills] = useState(false);
   const [showAllPayments, setShowAllPayments] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
 
-  // Payment form state
+  // Payment form
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("CASH");
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
@@ -65,32 +66,16 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
 
   const handlePayment = async () => {
     setPaymentError("");
-
-    // ── Client-side validation ───────────────────────────────────────────────
-    if (!amount || Number(amount) <= 0) {
-      setPaymentError("Amount must be greater than 0.");
-      return;
-    }
-    if (!paymentDate) {
-      setPaymentError("Payment date is required.");
-      return;
-    }
-    if (new Date(paymentDate) > new Date()) {
-      setPaymentError("Payment date cannot be in the future.");
-      return;
-    }
-
+    if (!amount || Number(amount) <= 0) { setPaymentError("Amount must be greater than 0."); return; }
+    if (!paymentDate) { setPaymentError("Payment date is required."); return; }
+    if (new Date(paymentDate) > new Date()) { setPaymentError("Payment date cannot be in the future."); return; }
     setAdding(true);
     try {
       await api.post("/payments", {
-        customerId,
-        amount: Number(amount),
-        paymentMode,
-        date: paymentDate,
-        note: note.trim() || undefined,
+        customerId, amount: Number(amount), paymentMode,
+        date: paymentDate, note: note.trim() || undefined,
       });
-      setAmount("");
-      setNote("");
+      setAmount(""); setNote("");
       setPaymentDate(new Date().toISOString().split("T")[0]);
       await Promise.all([fetchSummary(), fetchBills(), fetchPayments()]);
     } catch (err) {
@@ -110,10 +95,36 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
     setDeleting(false);
   };
 
-  // ✅ Production-safe PDF download URL
-  const downloadBill = (billId) => {
-    const base = import.meta.env.VITE_API_URL || "";
-    window.open(`${base}/api/billing/${billId}/pdf`, "_blank");
+  // ── PDF Download ────────────────────────────────────────────────────────────
+  // FIXED: The old implementation used window.open() which is a raw browser
+  // navigation — it never goes through axios, so the Authorization header is
+  // never attached, and the JWT middleware returns 401 immediately.
+  //
+  // Fix: use axios with responseType:"blob". The request interceptor in
+  // axios.js automatically attaches Authorization: Bearer <token> to every
+  // axios request, including this one. The binary PDF response is converted
+  // to a Blob URL and a programmatic <a> click triggers the download.
+  const downloadBill = async (billId) => {
+    if (downloadingId) return; // prevent double-tap
+    setDownloadingId(billId);
+    try {
+      const response = await api.get(`/billing/${billId}/pdf`, {
+        responseType: "blob",
+      });
+      const url  = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href  = url;
+      link.setAttribute("download", `bill-${billId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF download failed:", err);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const handleClose = () => {
@@ -125,12 +136,10 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center overflow-y-auto px-4 py-8"
         onMouseDown={handleClose}
       >
-        {/* Panel */}
         <div
           className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl mb-8"
           onMouseDown={(e) => e.stopPropagation()}
@@ -168,10 +177,10 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
             {/* Summary Cards */}
             {summary && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <SummaryCard label="Total Billed" value={summary.totalBilled} />
-                <SummaryCard label="Total Paid" value={summary.totalPaid} color="green" />
-                <SummaryCard label="Advance" value={summary.advanceBalance || 0} color="blue" />
-                <SummaryCard label="Outstanding" value={summary.totalOutstanding} color="red" />
+                <SummaryCard label="Total Billed"  value={summary.totalBilled} />
+                <SummaryCard label="Total Paid"    value={summary.totalPaid}   color="green" />
+                <SummaryCard label="Advance"       value={summary.advanceBalance || 0} color="blue" />
+                <SummaryCard label="Outstanding"   value={summary.totalOutstanding}    color="red" />
               </div>
             )}
 
@@ -190,6 +199,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
                     <BillCard
                       key={bill._id}
                       bill={bill}
+                      downloading={downloadingId === bill._id}
                       onView={() => setSelectedBill(bill)}
                       onDownload={() => downloadBill(bill._id)}
                     />
@@ -213,11 +223,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
               ) : (
                 <div className="space-y-2">
                   {payments.map((pay) => (
-                    <PaymentRow
-                      key={pay._id}
-                      payment={pay}
-                      onDelete={() => setDeleteConfirmId(pay._id)}
-                    />
+                    <PaymentRow key={pay._id} payment={pay} onDelete={() => setDeleteConfirmId(pay._id)} />
                   ))}
                 </div>
               )}
@@ -229,59 +235,29 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
             {/* Add Payment */}
             <div className="border-t border-gray-100 pt-5">
               <p className="text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide">Record Payment</p>
-
               {paymentError && (
                 <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg mb-3">
-                  <AlertTriangle size={12} className="flex-shrink-0" />
-                  {paymentError}
+                  <AlertTriangle size={12} className="flex-shrink-0" />{paymentError}
                 </div>
               )}
-
-              {/* Row 1: Amount + Date + Mode */}
               <div className="flex flex-col sm:flex-row gap-2 mb-2">
-                <input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Amount (₹)"
-                  min="1"
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white"
-                />
-                <input
-                  type="date"
-                  value={paymentDate}
-                  max={new Date().toISOString().split("T")[0]}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="sm:w-40 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white"
-                />
-                <select
-                  value={paymentMode}
-                  onChange={(e) => setPaymentMode(e.target.value)}
-                  className="sm:w-32 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white"
-                >
+                <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount (₹)" min="1"
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                <input type="date" value={paymentDate} max={new Date().toISOString().split("T")[0]} onChange={(e) => setPaymentDate(e.target.value)}
+                  className="sm:w-40 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
+                  className="sm:w-32 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white">
                   <option value="CASH">Cash</option>
                   <option value="UPI">UPI</option>
                   <option value="BANK">Bank</option>
                   <option value="OTHER">Other</option>
                 </select>
               </div>
-
-              {/* Row 2: Note + Submit */}
               <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Note (optional)"
-                  maxLength={120}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={handlePayment}
-                  disabled={adding || !amount}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold"
-                >
+                <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" maxLength={120}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                <button type="button" onClick={handlePayment} disabled={adding || !amount}
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold">
                   {adding ? "Adding…" : "Add Payment"}
                 </button>
               </div>
@@ -290,16 +266,10 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
         </div>
       </div>
 
-      {/* ── Delete Confirmation Dialog ─────────────────────────────────────── */}
+      {/* Delete Confirmation */}
       {deleteConfirmId && (
-        <div
-          className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center px-4"
-          onClick={() => setDeleteConfirmId(null)}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center px-4" onClick={() => setDeleteConfirmId(null)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={18} className="text-red-500" />
@@ -308,22 +278,12 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
                 <p className="text-sm font-bold text-gray-900">Reverse this payment?</p>
                 <p className="text-xs text-gray-400 mt-1">
                   This will soft-delete the payment and recalculate all bill statuses automatically.
-                  This action cannot be easily undone.
                 </p>
               </div>
             </div>
             <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 border border-gray-200 text-sm font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition text-gray-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeDelete}
-                disabled={deleting}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl transition disabled:opacity-50"
-              >
+              <button onClick={() => setDeleteConfirmId(null)} className="flex-1 border border-gray-200 text-sm font-semibold py-2.5 rounded-xl hover:bg-gray-50 transition text-gray-700">Cancel</button>
+              <button onClick={executeDelete} disabled={deleting} className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl transition disabled:opacity-50">
                 {deleting ? "Reversing…" : "Yes, Reverse"}
               </button>
             </div>
@@ -347,11 +307,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, color }) {
-  const colorMap = {
-    green: "bg-green-50 text-green-900",
-    blue:  "bg-blue-50 text-blue-900",
-    red:   "bg-red-50 text-red-900",
-  };
+  const colorMap = { green: "bg-green-50 text-green-900", blue: "bg-blue-50 text-blue-900", red: "bg-red-50 text-red-900" };
   const base = color ? colorMap[color] : "bg-gray-100 text-gray-900";
   return (
     <div className={`rounded-xl p-4 ${base}`}>
@@ -367,17 +323,9 @@ function Section({ title, count, showAll, onToggle, children }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-          {count > 0 && (
-            <span className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-              {count}
-            </span>
-          )}
+          {count > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{count}</span>}
         </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors"
-        >
+        <button type="button" onClick={onToggle} className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">
           {showAll ? "Show less" : "View all"}
         </button>
       </div>
@@ -386,11 +334,11 @@ function Section({ title, count, showAll, onToggle, children }) {
   );
 }
 
-function BillCard({ bill, onView, onDownload }) {
+function BillCard({ bill, onView, onDownload, downloading }) {
   const statusConfig = {
-    PAID:    { cls: "bg-green-100 text-green-800",  label: "Paid" },
+    PAID:    { cls: "bg-green-100 text-green-800",  label: "Paid"    },
     PARTIAL: { cls: "bg-amber-100 text-amber-800",  label: "Partial" },
-    UNPAID:  { cls: "bg-red-100 text-red-800",      label: "Unpaid" },
+    UNPAID:  { cls: "bg-red-100 text-red-800",      label: "Unpaid"  },
   };
   const s = statusConfig[bill.status] || statusConfig.UNPAID;
   const fmt = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -398,12 +346,8 @@ function BillCard({ bill, onView, onDownload }) {
   return (
     <div className="border border-gray-200 rounded-xl p-4 space-y-3 hover:border-gray-300 transition-colors">
       <div className="flex items-start justify-between gap-2">
-        <span className="text-xs font-semibold text-gray-600">
-          {fmt(bill.fromDate)} – {fmt(bill.toDate)}
-        </span>
-        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full flex-shrink-0 ${s.cls}`}>
-          {s.label}
-        </span>
+        <span className="text-xs font-semibold text-gray-600">{fmt(bill.fromDate)} – {fmt(bill.toDate)}</span>
+        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full flex-shrink-0 ${s.cls}`}>{s.label}</span>
       </div>
       <div className="grid grid-cols-2 gap-y-1 text-sm">
         <span className="text-gray-500">Total</span>
@@ -413,26 +357,18 @@ function BillCard({ bill, onView, onDownload }) {
         {bill.status !== "PAID" && (
           <>
             <span className="text-gray-500">Due</span>
-            <span className="text-right font-bold text-red-600">
-              ₹{Math.max(0, bill.totalAmount - bill.amountPaid)}
-            </span>
+            <span className="text-right font-bold text-red-600">₹{Math.max(0, bill.totalAmount - bill.amountPaid)}</span>
           </>
         )}
       </div>
       <div className="flex gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onView}
-          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold"
-        >
+        <button type="button" onClick={onView}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold">
           <Eye size={12} /> View
         </button>
-        <button
-          type="button"
-          onClick={onDownload}
-          className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition-colors font-semibold"
-        >
-          <Download size={12} /> PDF
+        <button type="button" onClick={onDownload} disabled={downloading}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition-colors font-semibold disabled:opacity-50">
+          <Download size={12} /> {downloading ? "Downloading…" : "PDF"}
         </button>
       </div>
     </div>
@@ -440,18 +376,11 @@ function BillCard({ bill, onView, onDownload }) {
 }
 
 function PaymentRow({ payment, onDelete }) {
-  const modeColors = {
-    CASH:  "bg-green-100 text-green-800",
-    UPI:   "bg-blue-100 text-blue-800",
-    BANK:  "bg-purple-100 text-purple-800",
-    OTHER: "bg-gray-200 text-gray-700",
-  };
+  const modeColors = { CASH: "bg-green-100 text-green-800", UPI: "bg-blue-100 text-blue-800", BANK: "bg-purple-100 text-purple-800", OTHER: "bg-gray-200 text-gray-700" };
   return (
     <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
       <div className="flex items-center gap-3 min-w-0">
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ${modeColors[payment.paymentMode] || modeColors.OTHER}`}>
-          {payment.paymentMode}
-        </span>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ${modeColors[payment.paymentMode] || modeColors.OTHER}`}>{payment.paymentMode}</span>
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">₹{payment.amount}</p>
           <p className="text-xs text-gray-400">
@@ -460,11 +389,7 @@ function PaymentRow({ payment, onDelete }) {
           </p>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onDelete}
-        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0 ml-2"
-      >
+      <button type="button" onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0 ml-2">
         <Trash2 size={13} />
       </button>
     </div>
@@ -475,31 +400,13 @@ function Pagination({ pagination, page, setPage }) {
   if (!pagination?.pages || pagination.pages <= 1) return null;
   return (
     <div className="flex items-center justify-center gap-3 mt-3">
-      <button
-        type="button"
-        disabled={page === 1}
-        onClick={() => setPage(page - 1)}
-        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"
-      >
-        <ChevronLeft size={14} />
-      </button>
+      <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"><ChevronLeft size={14} /></button>
       <span className="text-xs font-semibold text-gray-500">{page} / {pagination.pages}</span>
-      <button
-        type="button"
-        disabled={page === pagination.pages}
-        onClick={() => setPage(page + 1)}
-        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"
-      >
-        <ChevronRight size={14} />
-      </button>
+      <button type="button" disabled={page === pagination.pages} onClick={() => setPage(page + 1)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"><ChevronRight size={14} /></button>
     </div>
   );
 }
 
 function EmptyState({ text }) {
-  return (
-    <p className="text-xs font-semibold text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded-xl">
-      {text}
-    </p>
-  );
+  return <p className="text-xs font-semibold text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded-xl">{text}</p>;
 }

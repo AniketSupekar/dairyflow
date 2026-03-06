@@ -2,14 +2,37 @@ import { useEffect, useState, useMemo } from "react";
 import { getCustomersByLane, generateBill, downloadBillPdf } from "../../api/billing.api";
 import { getLanes } from "../../api/lane.api";
 import CustomerFinancialPanel from "../../components/CustomerFinancialPanel";
+import api from "../../api/axios";
 import { Search, X, AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Download } from "lucide-react";
 
 const PAGE_SIZE = 12;
+
+// ─── Fetch outstanding for all customers in one batch ─────────────────────────
+// Uses getCustomerFinancialSummary per customer but fires them all in parallel.
+// Returns a map: { customerId: totalOutstanding }
+const fetchOutstandingBatch = async (customerIds) => {
+  if (!customerIds.length) return {};
+  const results = await Promise.allSettled(
+    customerIds.map((id) =>
+      api.get(`/billing/customer-summary/${id}`).then((r) => ({
+        id,
+        outstanding: r.data.data.totalOutstanding || 0,
+      }))
+    )
+  );
+  const map = {};
+  results.forEach((r) => {
+    if (r.status === "fulfilled") map[r.value.id] = r.value.outstanding;
+  });
+  return map;
+};
 
 const BillingPage = () => {
   const [lanes, setLanes] = useState([]);
   const [selectedLane, setSelectedLane] = useState("");
   const [customers, setCustomers] = useState([]);
+  const [outstandingMap, setOutstandingMap] = useState({}); // real-time outstanding per customer
+  const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -27,29 +50,50 @@ const BillingPage = () => {
   const [financialCustomer, setFinancialCustomer] = useState(null);
 
   useEffect(() => {
-    const fetchLanes = async () => {
-      try {
-        const res = await getLanes();
-        setLanes(res.data.data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    fetchLanes();
+    getLanes()
+      .then((res) => setLanes(res.data.data))
+      .catch(console.error);
   }, []);
 
   const handleLaneChange = async (laneId) => {
     setSelectedLane(laneId);
     setCustomers([]);
+    setOutstandingMap({});
     setSearch("");
     setCurrentPage(1);
     if (!laneId) return;
     try {
       const res = await getCustomersByLane(laneId);
-      setCustomers(res.data.data);
+      const loaded = res.data.data;
+      setCustomers(loaded);
+
+      // Fetch real outstanding for every customer in this lane — parallel batch
+      setOutstandingLoading(true);
+      const map = await fetchOutstandingBatch(loaded.map((c) => c._id));
+      setOutstandingMap(map);
     } catch (err) {
       console.error(err);
+    } finally {
+      setOutstandingLoading(false);
     }
+  };
+
+  // After recording a payment or generating a bill, refresh outstanding for that customer
+  const refreshOutstanding = async (customerId) => {
+    try {
+      const r = await api.get(`/billing/customer-summary/${customerId}`);
+      setOutstandingMap((prev) => ({
+        ...prev,
+        [customerId]: r.data.data.totalOutstanding || 0,
+      }));
+    } catch { /* silent */ }
+  };
+
+  const handlePanelClose = () => {
+    // Refresh outstanding for the customer whose panel was open
+    if (financialCustomerId) refreshOutstanding(financialCustomerId);
+    setFinancialCustomerId(null);
+    setFinancialCustomer(null);
   };
 
   const filteredCustomers = useMemo(() => {
@@ -90,22 +134,19 @@ const BillingPage = () => {
     if (!fromDate || !toDate) { setError("Please select both from and to dates."); return; }
     if (new Date(fromDate) >= new Date(toDate)) { setError("From date must be before to date."); return; }
     if (new Date(toDate) > new Date()) { setError("Cannot generate bill for future dates."); return; }
-
     setLoading(true);
     try {
       const res = await generateBill({ customerId: selectedCustomer._id, fromDate, toDate });
       setGeneratedBill(res.data.data);
       setSuccess("Bill generated successfully.");
+      // Refresh outstanding badge for this customer
+      refreshOutstanding(selectedCustomer._id);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to generate bill.");
     }
     setLoading(false);
   };
 
-  // ── PDF Download ──────────────────────────────────────────────────────────────
-  // FIX: window.open() makes a plain browser request with no headers → 401
-  // axios has the JWT interceptor so it sends Authorization: Bearer <token>
-  // We receive the PDF as a blob and trigger a programmatic download
   const handleDownload = async () => {
     if (!generatedBill?._id) return;
     setDownloading(true);
@@ -122,7 +163,6 @@ const BillingPage = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setError("Failed to download PDF. Please try again.");
-      console.error(err);
     }
     setDownloading(false);
   };
@@ -134,7 +174,7 @@ const BillingPage = () => {
         <CustomerFinancialPanel
           customerId={financialCustomerId}
           customer={financialCustomer}
-          onClose={() => { setFinancialCustomerId(null); setFinancialCustomer(null); }}
+          onClose={handlePanelClose}
         />
       )}
 
@@ -184,29 +224,56 @@ const BillingPage = () => {
 
       {paginatedCustomers.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {paginatedCustomers.map((customer) => (
-            <div key={customer._id} className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4 hover:border-gray-300 hover:shadow-sm transition">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-gray-900 truncate">{customer.name}</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">Opening: ₹{customer.openingBalance || 0}</p>
+          {paginatedCustomers.map((customer) => {
+            const outstanding = outstandingMap[customer._id] ?? null;
+            const hasOutstanding = outstanding !== null && outstanding > 0;
+
+            return (
+              <div
+                key={customer._id}
+                className={`bg-white border rounded-2xl p-5 space-y-4 hover:shadow-sm transition
+                  ${hasOutstanding ? "border-rose-100 hover:border-rose-200" : "border-gray-200 hover:border-gray-300"}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate">{customer.name}</h3>
+                    {/* Opening balance — shown as context, NOT as current due */}
+                    {customer.openingBalance > 0 && (
+                      <p className="text-xs text-gray-400 mt-0.5">Opening: ₹{customer.openingBalance}</p>
+                    )}
+                  </div>
+
+                  {/* Real-time outstanding badge — only shown when there's an actual unpaid amount */}
+                  {outstandingLoading && outstanding === null ? (
+                    <span className="flex-shrink-0 w-16 h-5 bg-gray-100 rounded-full animate-pulse" />
+                  ) : hasOutstanding ? (
+                    <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100 whitespace-nowrap">
+                      ₹{outstanding} due
+                    </span>
+                  ) : outstanding === 0 ? (
+                    <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                      Settled
+                    </span>
+                  ) : null}
                 </div>
-                {(customer.openingBalance || 0) > 0 && (
-                  <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100">
-                    ₹{customer.openingBalance} due
-                  </span>
-                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => openModal(customer)}
+                    className="flex-1 bg-gray-900 hover:bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl transition"
+                  >
+                    Generate Bill
+                  </button>
+                  <button
+                    onClick={() => { setFinancialCustomerId(customer._id); setFinancialCustomer(customer); }}
+                    className="flex-1 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 transition text-gray-700"
+                  >
+                    View Financials
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button onClick={() => openModal(customer)} className="flex-1 bg-gray-900 hover:bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl transition">
-                  Generate Bill
-                </button>
-                <button onClick={() => { setFinancialCustomerId(customer._id); setFinancialCustomer(customer); }} className="flex-1 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 transition text-gray-700">
-                  View Financials
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -250,6 +317,7 @@ const BillingPage = () => {
         </div>
       )}
 
+      {/* Bill generation modal */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center px-4 z-50" onClick={closeModal}>
           <div className="bg-white w-full max-w-md rounded-2xl p-6 space-y-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -326,9 +394,9 @@ const BillingPage = () => {
 
 function StatusPill({ status }) {
   const cfg = {
-    PAID:    { cls: "bg-green-100 text-green-700", label: "Paid" },
-    PARTIAL: { cls: "bg-amber-100 text-amber-700", label: "Partially Paid" },
-    UNPAID:  { cls: "bg-red-100 text-red-600",     label: "Unpaid" },
+    PAID:    { cls: "bg-green-100 text-green-700",  label: "Paid"             },
+    PARTIAL: { cls: "bg-amber-100 text-amber-700",  label: "Partially Paid"   },
+    UNPAID:  { cls: "bg-red-100 text-red-600",      label: "Unpaid"           },
   };
   const { cls, label } = cfg[status] || cfg.UNPAID;
   return <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full ${cls}`}>{label}</span>;
