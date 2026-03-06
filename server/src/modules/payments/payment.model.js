@@ -39,11 +39,15 @@ const paymentSchema = new mongoose.Schema(
 );
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
-// FIX: always include tenantId — every query filters by tenantId + customerId.
-// The old index { customerId, date } scanned across all tenants for that customer.
+// Primary lookup: every payment query scopes to tenantId + customerId
 paymentSchema.index({ tenantId: 1, customerId: 1, date: -1 });
 
-// For duplicate detection query: tenantId + customerId + amount + date + createdAt
+// Duplicate detection: tenantId + customerId + amount + date
 paymentSchema.index({ tenantId: 1, customerId: 1, amount: 1, date: 1 });
+
+// ADDED: recalculateBillAllocations and getOutstandingList both query
+// { tenantId, customerId, isActive: true } — isActive in the index means
+// Mongo can satisfy the filter without loading inactive payment docs.
+paymentSchema.index({ tenantId: 1, customerId: 1, isActive: 1, date: 1 });
 
 module.exports = mongoose.model("Payment", paymentSchema);

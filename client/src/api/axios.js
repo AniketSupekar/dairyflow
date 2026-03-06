@@ -1,8 +1,5 @@
 import axios from "axios";
 
-// VITE_API_URL is set in:
-//   Local dev  → client/.env              → http://localhost:5000
-//   Production → Vercel env vars dashboard → https://dairy-api.vercel.app
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL}/api`,
   headers: {
@@ -19,11 +16,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Auto-logout on 401 (expired or invalid token)
+// Auto-logout on 401 — BUT skip blob requests.
+// When responseType is "blob" and the server returns a JSON error (e.g. 401),
+// axios receives the body as a Blob instead of parsed JSON. The status code
+// is still correct on error.response.status, but we must NOT redirect here —
+// the calling function (e.g. handleDownload) needs to handle it locally and
+// show a proper error message rather than wiping the session.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const isBlob = error.config?.responseType === "blob";
+    if (error.response?.status === 401 && !isBlob) {
       localStorage.removeItem("token");
       window.location.href = "/login";
     }
