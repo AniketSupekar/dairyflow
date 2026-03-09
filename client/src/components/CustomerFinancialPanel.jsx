@@ -1,38 +1,73 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import BillViewModal from "./BillViewModal";
-import { X, Download, Eye, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import {
+  X, Download, Eye, Trash2, ChevronLeft, ChevronRight,
+  AlertTriangle, ChevronDown, ChevronUp, CreditCard, FileText,
+} from "lucide-react";
+
+// ── shared download helper ────────────────────────────────────────────────────
+// hintMeta = { customerName, laneName, fromDate } — used as filename fallback
+// when CORS hasn't exposed Content-Disposition yet.
+// Permanent fix: add  exposedHeaders: ["Content-Disposition"]  to your cors config.
+const triggerDownload = (blob, filename) => {
+  const url  = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href  = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+const buildFilename = (billId, meta = {}) => {
+  const safe = (s) => (s || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 24);
+  const monthYear = meta.fromDate
+    ? new Date(meta.fromDate).toLocaleDateString("en-IN", { month: "short", year: "numeric" }).replace(" ", "")
+    : "";
+  const parts = [safe(meta.customerName), safe(meta.laneName), monthYear].filter(Boolean);
+  return parts.length ? parts.join("_") + ".pdf" : `bill-${billId}.pdf`;
+};
 
 export default function CustomerFinancialPanel({ customerId, customer, onClose }) {
   const [visible, setVisible] = useState(true);
   const [summary, setSummary] = useState(null);
-  const [bills, setBills] = useState([]);
-  const [payments, setPayments] = useState([]);
+
+  // Bills
+  const [bills, setBills]               = useState([]);
   const [billPagination, setBillPagination] = useState({});
-  const [paymentPagination, setPaymentPagination] = useState({});
-  const [billPage, setBillPage] = useState(1);
-  const [paymentPage, setPaymentPage] = useState(1);
-  const [monthFilter, setMonthFilter] = useState("");
+  const [billPage, setBillPage]         = useState(1);
   const [showAllBills, setShowAllBills] = useState(false);
+  const [billsOpen, setBillsOpen]       = useState(true);
+
+  // Payments
+  const [payments, setPayments]               = useState([]);
+  const [paymentPagination, setPaymentPagination] = useState({});
+  const [paymentPage, setPaymentPage]         = useState(1);
   const [showAllPayments, setShowAllPayments] = useState(false);
+  const [paymentsOpen, setPaymentsOpen]       = useState(false); // collapsed by default
+
+  // Shared
+  const [monthFilter, setMonthFilter] = useState("");
   const [downloadingId, setDownloadingId] = useState(null);
+  const [selectedBill, setSelectedBill]   = useState(null);
 
   // Payment form
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount]           = useState("");
   const [paymentMode, setPaymentMode] = useState("CASH");
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
-  const [note, setNote] = useState("");
-  const [adding, setAdding] = useState(false);
+  const [note, setNote]               = useState("");
+  const [adding, setAdding]           = useState(false);
   const [paymentError, setPaymentError] = useState("");
+  const [payFormOpen, setPayFormOpen] = useState(false);
 
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [selectedBill, setSelectedBill] = useState(null);
-
-  useEffect(() => { if (customerId) fetchSummary(); }, [customerId]);
-  useEffect(() => { if (customerId) fetchBills(); }, [customerId, billPage, monthFilter, showAllBills]);
+  useEffect(() => { if (customerId) fetchSummary();  }, [customerId]);
+  useEffect(() => { if (customerId) fetchBills();    }, [customerId, billPage, monthFilter, showAllBills]);
   useEffect(() => { if (customerId) fetchPayments(); }, [customerId, paymentPage, monthFilter, showAllPayments]);
 
   const fetchSummary = async () => {
@@ -67,7 +102,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
   const handlePayment = async () => {
     setPaymentError("");
     if (!amount || Number(amount) <= 0) { setPaymentError("Amount must be greater than 0."); return; }
-    if (!paymentDate) { setPaymentError("Payment date is required."); return; }
+    if (!paymentDate)                    { setPaymentError("Payment date is required."); return; }
     if (new Date(paymentDate) > new Date()) { setPaymentError("Payment date cannot be in the future."); return; }
     setAdding(true);
     try {
@@ -75,7 +110,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
         customerId, amount: Number(amount), paymentMode,
         date: paymentDate, note: note.trim() || undefined,
       });
-      setAmount(""); setNote("");
+      setAmount(""); setNote(""); setPayFormOpen(false);
       setPaymentDate(new Date().toISOString().split("T")[0]);
       await Promise.all([fetchSummary(), fetchBills(), fetchPayments()]);
     } catch (err) {
@@ -95,30 +130,23 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
     setDeleting(false);
   };
 
-  // ── PDF Download ────────────────────────────────────────────────────────────
-  // FIXED: The old implementation used window.open() which is a raw browser
-  // navigation — it never goes through axios, so the Authorization header is
-  // never attached, and the JWT middleware returns 401 immediately.
-  //
-  // Fix: use axios with responseType:"blob". The request interceptor in
-  // axios.js automatically attaches Authorization: Bearer <token> to every
-  // axios request, including this one. The binary PDF response is converted
-  // to a Blob URL and a programmatic <a> click triggers the download.
-  const downloadBill = async (billId) => {
-    if (downloadingId) return; // prevent double-tap
+  // ── THE FIX: extract filename from header, fall back to building it from meta
+  const downloadBill = async (billId, meta = {}) => {
+    if (downloadingId) return;
     setDownloadingId(billId);
     try {
-      const response = await api.get(`/billing/${billId}/pdf`, {
-        responseType: "blob",
+      const response = await api.get(`/billing/${billId}/pdf`, { responseType: "blob" });
+
+      // Try Content-Disposition first (works after adding exposedHeaders: ["Content-Disposition"] to cors)
+      const disposition = response.headers?.["content-disposition"] || "";
+      const match = disposition.match(/filename="?([^";\n]+)"?/i);
+      const filename = match?.[1]?.trim() || buildFilename(billId, {
+        customerName: customer?.name,
+        laneName: meta.laneName,
+        fromDate: meta.fromDate,
       });
-      const url  = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement("a");
-      link.href  = url;
-      link.setAttribute("download", `bill-${billId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+
+      triggerDownload(response.data, filename);
     } catch (err) {
       console.error("PDF download failed:", err);
       alert("Failed to download PDF. Please try again.");
@@ -144,7 +172,8 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
           className="relative w-full max-w-4xl bg-white rounded-2xl shadow-2xl mb-8"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* Header */}
+
+          {/* ── Header ── */}
           <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
             <div>
               <h2 className="text-base font-bold text-gray-900">
@@ -163,112 +192,180 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
                 />
               </div>
               <button
-                type="button"
                 onClick={handleClose}
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-900"
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 transition text-gray-500"
               >
                 <X size={15} strokeWidth={2.5} />
               </button>
             </div>
           </div>
 
-          <div className="px-6 py-5 space-y-7">
+          <div className="px-6 py-5 space-y-5">
 
-            {/* Summary Cards */}
+            {/* ── Summary Cards ── */}
             {summary && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <SummaryCard label="Total Billed"  value={summary.totalBilled} />
-                <SummaryCard label="Total Paid"    value={summary.totalPaid}   color="green" />
-                <SummaryCard label="Advance"       value={summary.advanceBalance || 0} color="blue" />
-                <SummaryCard label="Outstanding"   value={summary.totalOutstanding}    color="red" />
+                <SummaryCard label="Total Paid"    value={summary.totalPaid}              color="green" />
+                <SummaryCard label="Advance"       value={summary.advanceBalance || 0}    color="blue"  />
+                <SummaryCard label="Outstanding"   value={summary.totalOutstanding}       color="red"   />
               </div>
             )}
 
-            {/* Bills */}
-            <Section
-              title="Bills"
-              count={billPagination?.total}
-              showAll={showAllBills}
-              onToggle={() => { setShowAllBills(!showAllBills); setBillPage(1); }}
-            >
-              {!bills.length ? (
-                <EmptyState text="No bills found for this period" />
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {bills.map((bill) => (
-                    <BillCard
-                      key={bill._id}
-                      bill={bill}
-                      downloading={downloadingId === bill._id}
-                      onView={() => setSelectedBill(bill)}
-                      onDownload={() => downloadBill(bill._id)}
-                    />
-                  ))}
-                </div>
-              )}
-              {showAllBills && (
-                <Pagination pagination={billPagination} page={billPage} setPage={setBillPage} />
-              )}
-            </Section>
+            {/* ── Quick Pay button (opens inline form) ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setPayFormOpen(!payFormOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+              >
+                <span className="flex items-center gap-2">
+                  <CreditCard size={14} className="text-gray-400" />
+                  Record Payment
+                </span>
+                {payFormOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              </button>
 
-            {/* Payments */}
-            <Section
-              title="Payments"
-              count={paymentPagination?.total}
-              showAll={showAllPayments}
-              onToggle={() => { setShowAllPayments(!showAllPayments); setPaymentPage(1); }}
-            >
-              {!payments.length ? (
-                <EmptyState text="No payments found for this period" />
-              ) : (
-                <div className="space-y-2">
-                  {payments.map((pay) => (
-                    <PaymentRow key={pay._id} payment={pay} onDelete={() => setDeleteConfirmId(pay._id)} />
-                  ))}
+              {payFormOpen && (
+                <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+                  {paymentError && (
+                    <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
+                      <AlertTriangle size={12} className="flex-shrink-0" />{paymentError}
+                    </div>
+                  )}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount (₹)" min="1"
+                      className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                    <input type="date" value={paymentDate} max={new Date().toISOString().split("T")[0]} onChange={(e) => setPaymentDate(e.target.value)}
+                      className="sm:w-40 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                    <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
+                      className="sm:w-32 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white">
+                      <option value="CASH">Cash</option>
+                      <option value="UPI">UPI</option>
+                      <option value="BANK">Bank</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" maxLength={120}
+                      className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
+                    <button type="button" onClick={handlePayment} disabled={adding || !amount}
+                      className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition font-semibold disabled:opacity-50">
+                      {adding ? "Adding…" : "Add Payment"}
+                    </button>
+                  </div>
                 </div>
               )}
-              {showAllPayments && (
-                <Pagination pagination={paymentPagination} page={paymentPage} setPage={setPaymentPage} />
-              )}
-            </Section>
-
-            {/* Add Payment */}
-            <div className="border-t border-gray-100 pt-5">
-              <p className="text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide">Record Payment</p>
-              {paymentError && (
-                <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg mb-3">
-                  <AlertTriangle size={12} className="flex-shrink-0" />{paymentError}
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row gap-2 mb-2">
-                <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount (₹)" min="1"
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
-                <input type="date" value={paymentDate} max={new Date().toISOString().split("T")[0]} onChange={(e) => setPaymentDate(e.target.value)}
-                  className="sm:w-40 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
-                <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}
-                  className="sm:w-32 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white">
-                  <option value="CASH">Cash</option>
-                  <option value="UPI">UPI</option>
-                  <option value="BANK">Bank</option>
-                  <option value="OTHER">Other</option>
-                </select>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" maxLength={120}
-                  className="flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-gray-50 focus:bg-white" />
-                <button type="button" onClick={handlePayment} disabled={adding || !amount}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold">
-                  {adding ? "Adding…" : "Add Payment"}
-                </button>
-              </div>
             </div>
+
+            {/* ── Bills — collapsible section ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setBillsOpen(!billsOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+              >
+                <span className="flex items-center gap-2">
+                  <FileText size={14} className="text-gray-400" />
+                  Bills
+                  {billPagination?.total > 0 && (
+                    <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                      {billPagination.total}
+                    </span>
+                  )}
+                </span>
+                <div className="flex items-center gap-3">
+                  {billsOpen && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowAllBills(!showAllBills); setBillPage(1); }}
+                      className="text-xs text-gray-400 hover:text-gray-700 font-semibold transition"
+                    >
+                      {showAllBills ? "Show less" : "View all"}
+                    </button>
+                  )}
+                  {billsOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                </div>
+              </button>
+
+              {billsOpen && (
+                <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+                  {!bills.length ? (
+                    <EmptyState text="No bills found for this period" />
+                  ) : (
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      {bills.map((bill) => (
+                        <BillCard
+                          key={bill._id}
+                          bill={bill}
+                          downloading={downloadingId === bill._id}
+                          onView={() => setSelectedBill(bill)}
+                          onDownload={() => downloadBill(bill._id, {
+                            customerName: customer?.name,
+                            fromDate: bill.fromDate,
+                          })}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {showAllBills && (
+                    <Pagination pagination={billPagination} page={billPage} setPage={setBillPage} />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Payments — collapsible section ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setPaymentsOpen(!paymentsOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition"
+              >
+                <span className="flex items-center gap-2">
+                  <CreditCard size={14} className="text-gray-400" />
+                  Payment History
+                  {paymentPagination?.total > 0 && (
+                    <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                      {paymentPagination.total}
+                    </span>
+                  )}
+                </span>
+                <div className="flex items-center gap-3">
+                  {paymentsOpen && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowAllPayments(!showAllPayments); setPaymentPage(1); }}
+                      className="text-xs text-gray-400 hover:text-gray-700 font-semibold transition"
+                    >
+                      {showAllPayments ? "Show less" : "View all"}
+                    </button>
+                  )}
+                  {paymentsOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                </div>
+              </button>
+
+              {paymentsOpen && (
+                <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-2">
+                  {!payments.length ? (
+                    <EmptyState text="No payments found for this period" />
+                  ) : (
+                    payments.map((pay) => (
+                      <PaymentRow key={pay._id} payment={pay} onDelete={() => setDeleteConfirmId(pay._id)} />
+                    ))
+                  )}
+                  {showAllPayments && (
+                    <Pagination pagination={paymentPagination} page={paymentPage} setPage={setPaymentPage} />
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       </div>
 
       {/* Delete Confirmation */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center px-4" onClick={() => setDeleteConfirmId(null)}>
+        <div
+          className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center px-4"
+          onClick={() => setDeleteConfirmId(null)}
+        >
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
@@ -276,9 +373,7 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900">Reverse this payment?</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  This will soft-delete the payment and recalculate all bill statuses automatically.
-                </p>
+                <p className="text-xs text-gray-400 mt-1">This will soft-delete the payment and recalculate all bill statuses automatically.</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -307,29 +402,16 @@ export default function CustomerFinancialPanel({ customerId, customer, onClose }
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, color }) {
-  const colorMap = { green: "bg-green-50 text-green-900", blue: "bg-blue-50 text-blue-900", red: "bg-red-50 text-red-900" };
-  const base = color ? colorMap[color] : "bg-gray-100 text-gray-900";
+  const colorMap = {
+    green: "bg-green-50 text-green-900 border-green-100",
+    blue:  "bg-blue-50  text-blue-900  border-blue-100",
+    red:   "bg-red-50   text-red-900   border-red-100",
+  };
+  const base = color ? colorMap[color] : "bg-gray-50 text-gray-900 border-gray-100";
   return (
-    <div className={`rounded-xl p-4 ${base}`}>
+    <div className={`rounded-xl p-4 border ${base}`}>
       <p className="text-[10px] font-bold uppercase tracking-wide opacity-60 mb-1">{label}</p>
       <p className="text-xl font-bold">₹{Number(value || 0).toFixed(2)}</p>
-    </div>
-  );
-}
-
-function Section({ title, count, showAll, onToggle, children }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold text-gray-900">{title}</h3>
-          {count > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{count}</span>}
-        </div>
-        <button type="button" onClick={onToggle} className="text-xs font-semibold text-gray-500 hover:text-gray-900 transition-colors">
-          {showAll ? "Show less" : "View all"}
-        </button>
-      </div>
-      {children}
     </div>
   );
 }
@@ -338,9 +420,9 @@ function BillCard({ bill, onView, onDownload, downloading }) {
   const statusConfig = {
     PAID:    { cls: "bg-green-100 text-green-800",  label: "Paid"    },
     PARTIAL: { cls: "bg-amber-100 text-amber-800",  label: "Partial" },
-    UNPAID:  { cls: "bg-red-100 text-red-800",      label: "Unpaid"  },
+    UNPAID:  { cls: "bg-red-100   text-red-800",    label: "Unpaid"  },
   };
-  const s = statusConfig[bill.status] || statusConfig.UNPAID;
+  const s   = statusConfig[bill.status] || statusConfig.UNPAID;
   const fmt = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
   return (
@@ -363,12 +445,12 @@ function BillCard({ bill, onView, onDownload, downloading }) {
       </div>
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={onView}
-          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition-colors font-semibold">
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-900 text-white py-2 rounded-lg hover:bg-black transition font-semibold">
           <Eye size={12} /> View
         </button>
         <button type="button" onClick={onDownload} disabled={downloading}
-          className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition-colors font-semibold disabled:opacity-50">
-          <Download size={12} /> {downloading ? "Downloading…" : "PDF"}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition font-semibold disabled:opacity-50">
+          <Download size={12} /> {downloading ? "…" : "PDF"}
         </button>
       </div>
     </div>
@@ -376,11 +458,18 @@ function BillCard({ bill, onView, onDownload, downloading }) {
 }
 
 function PaymentRow({ payment, onDelete }) {
-  const modeColors = { CASH: "bg-green-100 text-green-800", UPI: "bg-blue-100 text-blue-800", BANK: "bg-purple-100 text-purple-800", OTHER: "bg-gray-200 text-gray-700" };
+  const modeColors = {
+    CASH:  "bg-green-100  text-green-800",
+    UPI:   "bg-blue-100   text-blue-800",
+    BANK:  "bg-purple-100 text-purple-800",
+    OTHER: "bg-gray-200   text-gray-700",
+  };
   return (
-    <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
+    <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100 hover:border-gray-200 transition">
       <div className="flex items-center gap-3 min-w-0">
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ${modeColors[payment.paymentMode] || modeColors.OTHER}`}>{payment.paymentMode}</span>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ${modeColors[payment.paymentMode] || modeColors.OTHER}`}>
+          {payment.paymentMode}
+        </span>
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">₹{payment.amount}</p>
           <p className="text-xs text-gray-400">
@@ -389,7 +478,8 @@ function PaymentRow({ payment, onDelete }) {
           </p>
         </div>
       </div>
-      <button type="button" onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0 ml-2">
+      <button type="button" onClick={onDelete}
+        className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition flex-shrink-0 ml-2">
         <Trash2 size={13} />
       </button>
     </div>
@@ -399,14 +489,24 @@ function PaymentRow({ payment, onDelete }) {
 function Pagination({ pagination, page, setPage }) {
   if (!pagination?.pages || pagination.pages <= 1) return null;
   return (
-    <div className="flex items-center justify-center gap-3 mt-3">
-      <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"><ChevronLeft size={14} /></button>
+    <div className="flex items-center justify-center gap-3 mt-2">
+      <button type="button" disabled={page === 1} onClick={() => setPage(page - 1)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition">
+        <ChevronLeft size={14} />
+      </button>
       <span className="text-xs font-semibold text-gray-500">{page} / {pagination.pages}</span>
-      <button type="button" disabled={page === pagination.pages} onClick={() => setPage(page + 1)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition-colors"><ChevronRight size={14} /></button>
+      <button type="button" disabled={page === pagination.pages} onClick={() => setPage(page + 1)}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 disabled:opacity-30 hover:bg-gray-50 transition">
+        <ChevronRight size={14} />
+      </button>
     </div>
   );
 }
 
 function EmptyState({ text }) {
-  return <p className="text-xs font-semibold text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded-xl">{text}</p>;
+  return (
+    <p className="text-xs font-semibold text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded-xl">
+      {text}
+    </p>
+  );
 }

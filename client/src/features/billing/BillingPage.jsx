@@ -3,13 +3,10 @@ import { getCustomersByLane, generateBill, downloadBillPdf } from "../../api/bil
 import { getLanes } from "../../api/lane.api";
 import CustomerFinancialPanel from "../../components/CustomerFinancialPanel";
 import api from "../../api/axios";
-import { Search, X, AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Search, X, AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Download, Receipt, IndianRupee } from "lucide-react";
 
 const PAGE_SIZE = 12;
 
-// ─── Fetch outstanding for all customers in one batch ─────────────────────────
-// Uses getCustomerFinancialSummary per customer but fires them all in parallel.
-// Returns a map: { customerId: totalOutstanding }
 const fetchOutstandingBatch = async (customerIds) => {
   if (!customerIds.length) return {};
   const results = await Promise.allSettled(
@@ -27,11 +24,23 @@ const fetchOutstandingBatch = async (customerIds) => {
   return map;
 };
 
+const triggerDownload = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 const BillingPage = () => {
   const [lanes, setLanes] = useState([]);
   const [selectedLane, setSelectedLane] = useState("");
+  const [selectedLaneName, setSelectedLaneName] = useState("");
   const [customers, setCustomers] = useState([]);
-  const [outstandingMap, setOutstandingMap] = useState({}); // real-time outstanding per customer
+  const [outstandingMap, setOutstandingMap] = useState({});
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -50,13 +59,13 @@ const BillingPage = () => {
   const [financialCustomer, setFinancialCustomer] = useState(null);
 
   useEffect(() => {
-    getLanes()
-      .then((res) => setLanes(res.data.data))
-      .catch(console.error);
+    getLanes().then((res) => setLanes(res.data.data)).catch(console.error);
   }, []);
 
   const handleLaneChange = async (laneId) => {
+    const lane = lanes.find((l) => l._id === laneId);
     setSelectedLane(laneId);
+    setSelectedLaneName(lane?.name || "");
     setCustomers([]);
     setOutstandingMap({});
     setSearch("");
@@ -66,8 +75,6 @@ const BillingPage = () => {
       const res = await getCustomersByLane(laneId);
       const loaded = res.data.data;
       setCustomers(loaded);
-
-      // Fetch real outstanding for every customer in this lane — parallel batch
       setOutstandingLoading(true);
       const map = await fetchOutstandingBatch(loaded.map((c) => c._id));
       setOutstandingMap(map);
@@ -78,7 +85,6 @@ const BillingPage = () => {
     }
   };
 
-  // After recording a payment or generating a bill, refresh outstanding for that customer
   const refreshOutstanding = async (customerId) => {
     try {
       const r = await api.get(`/billing/customer-summary/${customerId}`);
@@ -90,7 +96,6 @@ const BillingPage = () => {
   };
 
   const handlePanelClose = () => {
-    // Refresh outstanding for the customer whose panel was open
     if (financialCustomerId) refreshOutstanding(financialCustomerId);
     setFinancialCustomerId(null);
     setFinancialCustomer(null);
@@ -108,6 +113,17 @@ const BillingPage = () => {
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE
   );
+
+  // Lane-level stats — shown once outstanding batch loads
+  const laneStats = useMemo(() => {
+    const vals = Object.values(outstandingMap);
+    if (!vals.length) return null;
+    return {
+      total: vals.reduce((s, v) => s + v, 0),
+      withDues: vals.filter((v) => v > 0).length,
+      settled: vals.filter((v) => v === 0).length,
+    };
+  }, [outstandingMap]);
 
   const openModal = (customer) => {
     setSelectedCustomer(customer);
@@ -139,7 +155,6 @@ const BillingPage = () => {
       const res = await generateBill({ customerId: selectedCustomer._id, fromDate, toDate });
       setGeneratedBill(res.data.data);
       setSuccess("Bill generated successfully.");
-      // Refresh outstanding badge for this customer
       refreshOutstanding(selectedCustomer._id);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to generate bill.");
@@ -147,20 +162,19 @@ const BillingPage = () => {
     setLoading(false);
   };
 
+  // Pass hintMeta so downloadBillPdf can build the correct filename
+  // even if Content-Disposition isn't exposed by CORS yet
   const handleDownload = async () => {
     if (!generatedBill?._id) return;
     setDownloading(true);
     setError("");
     try {
-      const blob = await downloadBillPdf(generatedBill._id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `bill-${generatedBill._id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      const { blob, filename } = await downloadBillPdf(generatedBill._id, {
+        customerName: selectedCustomer?.name,
+        laneName: selectedLaneName,
+        fromDate: generatedBill.fromDate || fromDate,
+      });
+      triggerDownload(blob, filename);
     } catch (err) {
       setError("Failed to download PDF. Please try again.");
     }
@@ -168,7 +182,7 @@ const BillingPage = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="max-w-6xl mx-auto px-4 space-y-5">
 
       {financialCustomerId && (
         <CustomerFinancialPanel
@@ -178,12 +192,14 @@ const BillingPage = () => {
         />
       )}
 
+      {/* ── Page header — same pattern as other modules ── */}
       <div className="mb-6">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight">Financials</h1>
         <p className="text-sm text-gray-500 mt-0.5">Manage bills and payments by lane</p>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+      {/* Lane selector */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-5">
         <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Select Lane</label>
         <select
           value={selectedLane}
@@ -197,6 +213,25 @@ const BillingPage = () => {
         </select>
       </div>
 
+      {/* Lane stats strip — 3 compact cards, no "customers" word to save mobile space */}
+      {laneStats && !outstandingLoading && (
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Outstanding</p>
+            <p className="text-sm font-bold text-red-600 mt-0.5">₹{laneStats.total.toFixed(2)}</p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">With Dues</p>
+            <p className="text-sm font-bold text-amber-600 mt-0.5">{laneStats.withDues}</p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Settled</p>
+            <p className="text-sm font-bold text-emerald-600 mt-0.5">{laneStats.settled}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Search + count */}
       {customers.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <p className="text-sm text-gray-500">
@@ -222,6 +257,7 @@ const BillingPage = () => {
         </div>
       )}
 
+      {/* Customer cards */}
       {paginatedCustomers.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {paginatedCustomers.map((customer) => {
@@ -232,18 +268,15 @@ const BillingPage = () => {
               <div
                 key={customer._id}
                 className={`bg-white border rounded-2xl p-5 space-y-4 hover:shadow-sm transition
-                  ${hasOutstanding ? "border-rose-100 hover:border-rose-200" : "border-gray-200 hover:border-gray-300"}`}
+                  ${hasOutstanding ? "border-rose-200 bg-rose-50/20" : "border-gray-200 hover:border-gray-300"}`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-gray-900 truncate">{customer.name}</h3>
-                    {/* Opening balance — shown as context, NOT as current due */}
                     {customer.openingBalance > 0 && (
                       <p className="text-xs text-gray-400 mt-0.5">Opening: ₹{customer.openingBalance}</p>
                     )}
                   </div>
-
-                  {/* Real-time outstanding badge — only shown when there's an actual unpaid amount */}
                   {outstandingLoading && outstanding === null ? (
                     <span className="flex-shrink-0 w-16 h-5 bg-gray-100 rounded-full animate-pulse" />
                   ) : hasOutstanding ? (
@@ -260,15 +293,15 @@ const BillingPage = () => {
                 <div className="flex gap-2">
                   <button
                     onClick={() => openModal(customer)}
-                    className="flex-1 bg-gray-900 hover:bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl transition"
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-gray-900 hover:bg-black text-white text-xs font-semibold px-3 py-2 rounded-xl transition"
                   >
-                    Generate Bill
+                    <Receipt size={12} /> Generate Bill
                   </button>
                   <button
                     onClick={() => { setFinancialCustomerId(customer._id); setFinancialCustomer(customer); }}
-                    className="flex-1 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 transition text-gray-700"
+                    className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 transition text-gray-700"
                   >
-                    View Financials
+                    <IndianRupee size={12} /> Financials
                   </button>
                 </div>
               </div>
@@ -285,6 +318,7 @@ const BillingPage = () => {
         </div>
       )}
 
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-6 pb-2">
           <p className="text-xs text-gray-400 font-medium">
@@ -394,9 +428,9 @@ const BillingPage = () => {
 
 function StatusPill({ status }) {
   const cfg = {
-    PAID:    { cls: "bg-green-100 text-green-700",  label: "Paid"             },
-    PARTIAL: { cls: "bg-amber-100 text-amber-700",  label: "Partially Paid"   },
-    UNPAID:  { cls: "bg-red-100 text-red-600",      label: "Unpaid"           },
+    PAID:    { cls: "bg-green-100 text-green-700",  label: "Paid"           },
+    PARTIAL: { cls: "bg-amber-100 text-amber-700",  label: "Partially Paid" },
+    UNPAID:  { cls: "bg-red-100 text-red-600",      label: "Unpaid"         },
   };
   const { cls, label } = cfg[status] || cfg.UNPAID;
   return <span className={`inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full ${cls}`}>{label}</span>;
