@@ -63,14 +63,14 @@ deliveryRecordSchema.pre("save", function (next) {
 });
 
 // Also enforce on findOneAndUpdate (upsert path in upsertDeliveryRecord)
-deliveryRecordSchema.pre("findOneAndUpdate", function (next) {
+deliveryRecordSchema.pre("findOneAndUpdate", async function () {
   const update = this.getUpdate();
   const status = update?.status ?? update?.$set?.status;
+
   if (status === "HOLIDAY" || status === "NOT_DELIVERED") {
     if (!update.$set) update.$set = {};
     update.$set.quantity = 0;
   }
-  next();
 });
 
 // ─── Indexes ──────────────────────────────────────────────────────────────────
