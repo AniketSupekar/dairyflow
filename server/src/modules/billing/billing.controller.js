@@ -2,22 +2,19 @@
  * billing.controller.js
  *
  * CHANGES FROM PREVIOUS VERSION:
- *
- * 1. Removed inline buildBillPdfBuffer() — now imported from pdf.util.js
- * 2. downloadBillPdf — now populates laneId + calls buildBillFilename()
- *    This is what fixes "bill-69a6ad6b...pdf" → "RajeshKumar_Sector12_Jun2025.pdf"
- * 3. bulkDownloadZip — now calls buildBillFilename() for consistent naming
- * 4. Added const Lane = require("../lanes/lane.model") (used by populate)
+ * - buildBillPdfBuffer now receives req.tenant as third argument
+ *   → PDFs show real dairy name, logo, address from settings
+ * - No other logic changed
  */
 
-const Bill         = require("./bill.model");
-const Customer     = require("../customers/customer.model");
+const Bill           = require("./bill.model");
+const Customer       = require("../customers/customer.model");
 const DeliveryRecord = require("../deliveryRecords/deliveryRecord.model");
-const Payment      = require("../payments/payment.model");
-const { successResponse, errorResponse } = require("../../utils/response.util");
-const { buildBillPdfBuffer, buildBillFilename } = require("../../utils/pdf.util");
-const mongoose     = require("mongoose");
-const archiver     = require("archiver");
+const Payment        = require("../payments/payment.model");
+const { successResponse, errorResponse }         = require("../../utils/response.util");
+const { buildBillPdfBuffer, buildBillFilename }  = require("../../utils/pdf.util"); // ← correct names
+const mongoose  = require("mongoose");
+const archiver  = require("archiver");
 
 const toMonthString = (date) => {
   const d = new Date(date);
@@ -41,7 +38,7 @@ exports.generateBill = async (req, res) => {
       return errorResponse(res, "customerId, fromDate, toDate required", 400);
     const start = new Date(fromDate); start.setUTCHours(0, 0, 0, 0);
     const end   = new Date(toDate);   end.setUTCHours(23, 59, 59, 999);
-    if (start >= end)    return errorResponse(res, "fromDate must be before toDate", 400);
+    if (start >= end)     return errorResponse(res, "fromDate must be before toDate", 400);
     if (end > new Date()) return errorResponse(res, "Cannot generate bill for future dates", 400);
     const customer = await Customer.findOne({ _id: customerId, tenantId }).session(session);
     if (!customer) return errorResponse(res, "Customer not found", 404);
@@ -91,9 +88,6 @@ exports.generateBill = async (req, res) => {
 };
 
 // ─── Single PDF download ──────────────────────────────────────────────────────
-// FIX: populate laneId so buildBillFilename() can read lane name.
-// FIX: use buildBillFilename() → "RajeshKumar_Sector12_Jun2025.pdf"
-//      (old code had hardcoded `filename=bill-${bill._id}.pdf`)
 exports.downloadBillPdf = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -101,14 +95,16 @@ exports.downloadBillPdf = async (req, res) => {
 
     const bill = await Bill.findOne({ _id: id, tenantId })
       .populate("customerId", "name phone")
-      .populate("laneId",     "name")       // ← was missing before
+      .populate("laneId",     "name")
       .lean();
 
     if (!bill) return errorResponse(res, "Bill not found", 404);
 
     const laneName  = bill.laneId?.name || "";
     const filename  = buildBillFilename(bill, laneName);
-    const pdfBuffer = await buildBillPdfBuffer(bill, laneName);
+
+    // Pass req.tenant so PDF shows real dairy name, logo, address
+    const pdfBuffer = await buildBillPdfBuffer(bill, laneName, req.tenant);
 
     res.set({
       "Content-Type":        "application/pdf",
@@ -341,7 +337,7 @@ exports.bulkPreview = async (req, res) => {
     if (!fromDate || !toDate) return errorResponse(res, "fromDate and toDate required", 400);
     const start = new Date(fromDate); start.setUTCHours(0, 0, 0, 0);
     const end   = new Date(toDate);   end.setUTCHours(23, 59, 59, 999);
-    if (start >= end)    return errorResponse(res, "fromDate must be before toDate", 400);
+    if (start >= end)     return errorResponse(res, "fromDate must be before toDate", 400);
     if (end > new Date()) return errorResponse(res, "Cannot preview bills for future dates", 400);
     const customerFilter = { tenantId, isActive: true };
     if (laneId && laneId !== "all") customerFilter.laneId = laneId;
@@ -379,12 +375,12 @@ exports.bulkGenerate = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const { customerIds, fromDate, toDate } = req.body;
-    if (!customerIds?.length)    return errorResponse(res, "customerIds array required", 400);
-    if (!fromDate || !toDate)    return errorResponse(res, "fromDate and toDate required", 400);
+    if (!customerIds?.length)     return errorResponse(res, "customerIds array required", 400);
+    if (!fromDate || !toDate)     return errorResponse(res, "fromDate and toDate required", 400);
     if (customerIds.length > 200) return errorResponse(res, "Maximum 200 customers per bulk operation", 400);
     const start = new Date(fromDate); start.setUTCHours(0, 0, 0, 0);
     const end   = new Date(toDate);   end.setUTCHours(23, 59, 59, 999);
-    if (start >= end)    return errorResponse(res, "fromDate must be before toDate", 400);
+    if (start >= end)     return errorResponse(res, "fromDate must be before toDate", 400);
     if (end > new Date()) return errorResponse(res, "Cannot generate bills for future dates", 400);
     const toMonthStr  = (d) => { const dt = new Date(d); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`; };
     const tenantObjId = new mongoose.Types.ObjectId(tenantId);
@@ -408,7 +404,7 @@ exports.bulkGenerate = async (req, res) => {
     const results = [], toInsert = [];
     for (const idStr of customerIds.map(String)) {
       const customer = customerMap[idStr];
-      if (!customer)         { results.push({ customerId: idStr, status: "FAILED", reason: "Customer not found" }); continue; }
+      if (!customer)            { results.push({ customerId: idStr, status: "FAILED", reason: "Customer not found" }); continue; }
       if (billedSet.has(idStr)) { results.push({ customerId: idStr, customerName: customer.name, status: "SKIPPED", reason: "Already billed for this period" }); continue; }
       const delivery = deliveryMap[idStr];
       if (!delivery || delivery.deliveryTotal === 0) { results.push({ customerId: idStr, customerName: customer.name, status: "SKIPPED", reason: "No deliveries in period" }); continue; }
@@ -450,8 +446,7 @@ exports.bulkGenerate = async (req, res) => {
   }
 };
 
-// ─── bulkDownloadZip ──────────────────────────────────────────────────────────
-// FIX: populate laneId so each PDF gets the correct lane name in filename
+// ─── Bulk ZIP download ────────────────────────────────────────────────────────
 exports.bulkDownloadZip = async (req, res) => {
   try {
     const tenantId = req.tenantId;
@@ -461,7 +456,7 @@ exports.bulkDownloadZip = async (req, res) => {
 
     const bills = await Bill.find({ _id: { $in: billIds }, tenantId })
       .populate("customerId", "name phone")
-      .populate("laneId",     "name")       // ← was missing before
+      .populate("laneId",     "name")
       .lean();
 
     if (!bills.length) return errorResponse(res, "No bills found", 404);
@@ -477,7 +472,8 @@ exports.bulkDownloadZip = async (req, res) => {
     for (const bill of bills) {
       try {
         const laneName  = bill.laneId?.name || "";
-        const pdfBuffer = await buildBillPdfBuffer(bill, laneName);
+        // Pass req.tenant so every PDF in the ZIP shows the real dairy branding
+        const pdfBuffer = await buildBillPdfBuffer(bill, laneName, req.tenant);
         const filename  = buildBillFilename(bill, laneName);
         archive.append(pdfBuffer, { name: filename });
       } catch (pdfErr) {
