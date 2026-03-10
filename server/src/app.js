@@ -1,86 +1,104 @@
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const morgan = require("morgan");
+/**
+ * app.js — Express application setup
+ *
+ * Changes from previous version:
+ *   + tenantMiddleware on all protected routes (loads req.tenant)
+ *   + tenant routes registered
+ *   + rate limiting on auth routes
+ *   + request body size limit (10kb — prevents memory abuse)
+ *   + app name reads from env, not hardcoded
+ */
 
-const authRoutes = require("./modules/auth/auth.routes");
+require("dotenv").config();
+const env = require("./config/env"); // validates all required env vars at startup
+
+const express   = require("express");
+const cors      = require("cors");
+const helmet    = require("helmet");
+const morgan    = require("morgan");
+
+const authRoutes     = require("./modules/auth/auth.routes");
 const deliveryRoutes = require("./modules/deliveryRecords/deliveryRecord.routes");
-const paymentRoutes = require("./modules/payments/payment.routes");
-const billingRoutes = require("./modules/billing/billing.routes");
+const paymentRoutes  = require("./modules/payments/payment.routes");
+const billingRoutes  = require("./modules/billing/billing.routes");
 const customerRoutes = require("./modules/customers/customer.routes");
-const productRoutes = require("./modules/products/product.routes");
-const laneRoutes = require("./modules/lanes/lane.routes");
-const userRoutes = require("./modules/users/user.routes");
+const productRoutes  = require("./modules/products/product.routes");
+const laneRoutes     = require("./modules/lanes/lane.routes");
+const userRoutes     = require("./modules/users/user.routes");
+const tenantRoutes   = require("./modules/tenants/tenant.routes");
 
-const authMiddleware = require("./middleware/auth.middleware");
-const errorMiddleware = require("./middleware/error.middleware");
+const authMiddleware   = require("./middleware/auth.middleware");
+const tenantMiddleware = require("./middleware/tenant.middleware");
+const errorMiddleware  = require("./middleware/error.middleware");
+const { authLimiter, apiLimiter } = require("./middleware/rateLimit.middleware");
 
 const app = express();
 
-// ── Security ──────────────────────────────────────────────────────────────────
+// ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet());
 
-// ── CORS ─────────────────────────────────────────────────────────────────────
-// Allows your frontend URLs — localhost in dev, Vercel URL in prod
+// ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:4173",
-  process.env.CLIENT_URL,   // Set this in Vercel env vars → your frontend Vercel URL
+  env.CLIENT_URL,
 ].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman / server-to-server requests (no origin header)
-      if (!origin) return callback(null, true);
+      if (!origin) return callback(null, true); // Postman / server-to-server
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
-    credentials: true,
-    exposedHeaders: ["Content-Disposition"],
+    credentials:    true,
+    exposedHeaders: ["Content-Disposition"], // required for PDF filename in browser
   })
 );
 
-app.use(express.json());
+// ── Body parsing — 10kb limit prevents request body memory abuse ──────────────
+app.use(express.json({ limit: "10kb" }));
+app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
-// ── Logging (dev only) ────────────────────────────────────────────────────────
-if (process.env.NODE_ENV !== "production") {
-  app.use(morgan("dev"));
-}
+// ── Logging ───────────────────────────────────────────────────────────────────
+if (env.isDev) app.use(morgan("dev"));
 
-// ── Root route — confirms the API is live ─────────────────────────────────────
-// Open your Vercel backend URL in browser → you'll see this instead of "Cannot GET /"
-app.get("/", (req, res) => {
+// ── Health / info routes (public, no auth) ────────────────────────────────────
+app.get("/", (_req, res) => {
   res.status(200).json({
-    app: "Siddhivinayak Dairy API",
-    status: "live",
-    version: "1.0.0",
-    environment: process.env.NODE_ENV || "development",
-    timestamp: new Date().toISOString(),
+    app:         "Dairy SaaS API",
+    status:      "live",
+    version:     "2.0.0",
+    environment: env.NODE_ENV,
+    timestamp:   new Date().toISOString(),
   });
 });
 
-// ── Health check — for CI/CD and uptime monitors ──────────────────────────────
-app.get("/health", (req, res) => {
+app.get("/health", (_req, res) => {
   res.status(200).json({
-    status: "ok",
-    environment: process.env.NODE_ENV || "development",
-    timestamp: new Date().toISOString(),
+    status:      "ok",
+    environment: env.NODE_ENV,
+    timestamp:   new Date().toISOString(),
   });
 });
 
-// ── Public routes (no auth needed) ───────────────────────────────────────────
-app.use("/api/auth", authRoutes);
+// ── Public routes ─────────────────────────────────────────────────────────────
+app.use("/api/auth", authLimiter, authRoutes);
 
-// ── Protected routes (JWT required) ──────────────────────────────────────────
-app.use("/api", authMiddleware);
+// ── Protected routes ──────────────────────────────────────────────────────────
+// authMiddleware    → validates JWT, sets req.userId + req.tenantId + req.role
+// tenantMiddleware  → loads Tenant doc into req.tenant (one DB call per request)
+// apiLimiter        → general rate limit on all protected routes
+app.use("/api", authMiddleware, tenantMiddleware, apiLimiter);
+
+app.use("/api/tenant",     tenantRoutes);
 app.use("/api/deliveries", deliveryRoutes);
-app.use("/api/payments", paymentRoutes);
-app.use("/api/billing", billingRoutes);
-app.use("/api/customers", customerRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/lanes", laneRoutes);
-app.use("/api/users", userRoutes);
+app.use("/api/payments",   paymentRoutes);
+app.use("/api/billing",    billingRoutes);
+app.use("/api/customers",  customerRoutes);
+app.use("/api/products",   productRoutes);
+app.use("/api/lanes",      laneRoutes);
+app.use("/api/users",      userRoutes);
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use(errorMiddleware);

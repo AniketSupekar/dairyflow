@@ -1,8 +1,11 @@
 import { useEffect } from "react";
-import { Download, X, Printer, CheckCircle2, Clock, AlertCircle } from "lucide-react";
-import logo from "../assets/logo.png";
+import { Download, X, CheckCircle2, Clock, AlertCircle, Building2 } from "lucide-react";
+import { useTenant } from "../hooks/useTenant";
+import defaultLogo from "../assets/logo.png";
 
 export default function BillViewModal({ bill, customer, onClose, downloadBill }) {
+  const { tenant } = useTenant();
+
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === "Escape") onClose?.(); };
     window.addEventListener("keydown", handleEsc);
@@ -12,85 +15,107 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
   if (!bill) return null;
 
   const fmt = (date) =>
-    new Date(date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    new Date(date).toLocaleDateString("en-IN", {
+      day: "numeric", month: "short", year: "numeric",
+    });
 
   const fmtCurrency = (value) => `₹${Number(value || 0).toFixed(2)}`;
 
   const pending = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
 
   const statusConfig = {
-    PAID: { label: "Paid", icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 border-emerald-100" },
-    PARTIAL: { label: "Partial", icon: Clock, cls: "bg-amber-50 text-amber-700 border-amber-100" },
-    UNPAID: { label: "Unpaid", icon: AlertCircle, cls: "bg-red-50 text-red-600 border-red-100" },
+    PAID:    { label: "Paid",    icon: CheckCircle2, cls: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+    PARTIAL: { label: "Partial", icon: Clock,        cls: "bg-amber-50 text-amber-700 border-amber-100"       },
+    UNPAID:  { label: "Unpaid",  icon: AlertCircle,  cls: "bg-red-50 text-red-600 border-red-100"             },
   };
-  const status = statusConfig[bill.status] || statusConfig.UNPAID;
+  const status     = statusConfig[bill.status] || statusConfig.UNPAID;
   const StatusIcon = status.icon;
 
-  const handlePrint = () => window.print();
+  // Resolved logo — tenant's uploaded logo, or app default
+  const logoSrc      = tenant?.logoUrl || defaultLogo;
+  const businessName = tenant?.businessName || "Dairy";
 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-start z-[60] px-4 py-6 overflow-y-auto"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center
+        items-start z-[60] px-4 py-6 overflow-y-auto"
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl my-auto"
       >
-        {/* ── Header ──────────────────────────────────────────────────────── */}
+        {/* ── Header ── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-4">
-            <img
-              src={logo}
-              alt="Siddhivinayak Dairy"
-              className="w-14 h-14 object-cover"
-            />
+            {/* Tenant logo — live from settings */}
+            {logoSrc ? (
+              <img
+                src={logoSrc}
+                alt={businessName}
+                className="w-14 h-14 object-contain rounded-xl bg-gray-50 p-0.5 flex-shrink-0"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <Building2 size={20} className="text-gray-400" />
+              </div>
+            )}
             <div>
-              <p className="text-base font-bold text-gray-900">Invoice</p>
+              <p className="text-base font-bold text-gray-900">{businessName}</p>
               <p className="text-xs text-gray-400 mt-0.5">
-                Generated {fmt(bill.createdAt || bill.generatedAt)}
+                Invoice · Generated {fmt(bill.createdAt || bill.generatedAt)}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full border ${status.cls}`}>
+            <span className={`hidden sm:inline-flex items-center gap-1.5 text-xs font-bold
+              px-2.5 py-1 rounded-full border ${status.cls}`}>
               <StatusIcon size={11} />
               {status.label}
             </span>
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition text-gray-500"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border
+                border-gray-200 hover:bg-gray-50 transition text-gray-500"
             >
               <X size={14} />
             </button>
           </div>
         </div>
 
-        {/* ── Meta section ─────────────────────────────────────────────────── */}
+        {/* ── Meta ── */}
         <div className="px-6 py-5 grid grid-cols-2 gap-6 border-b border-gray-100 bg-gray-50/50">
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Billed To</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+              Billed To
+            </p>
             <p className="text-sm font-bold text-gray-900">{customer?.name || "Customer"}</p>
             {customer?.phone && (
               <p className="text-xs text-gray-500 mt-0.5">{customer.phone}</p>
             )}
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Billing Period</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+              Billing Period
+            </p>
             <p className="text-sm font-bold text-gray-900">
               {fmt(bill.fromDate)} – {fmt(bill.toDate)}
             </p>
-            <span className={`inline-flex sm:hidden items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border mt-1 ${status.cls}`}>
+            <span className={`inline-flex sm:hidden items-center gap-1 text-[10px] font-bold
+              px-2 py-0.5 rounded-full border mt-1 ${status.cls}`}>
               <StatusIcon size={10} />
               {status.label}
             </span>
           </div>
         </div>
 
-        {/* ── Items Table — horizontal scroll on mobile ─────────────────────── */}
+        {/* ── Items Table ── */}
         <div className="px-6 py-5">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Delivery Items</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+            Delivery Items
+          </p>
           <div className="rounded-xl border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[480px]">
@@ -118,7 +143,7 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
             </div>
           </div>
 
-          {/* ── Totals ───────────────────────────────────────────────────────── */}
+          {/* ── Totals ── */}
           <div className="mt-5 flex justify-end">
             <div className="w-full max-w-xs space-y-2.5">
               <div className="flex justify-between text-sm">
@@ -139,18 +164,20 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
           </div>
         </div>
 
-        {/* ── Footer Actions ────────────────────────────────────────────────── */}
+        {/* ── Footer Actions ── */}
         <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
           <button
             onClick={() => downloadBill(bill._id)}
-            className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white py-2.5 rounded-xl text-sm font-semibold transition"
+            className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black
+              text-white py-2.5 rounded-xl text-sm font-semibold transition"
           >
             <Download size={14} />
             Download PDF
           </button>
           <button
             onClick={onClose}
-            className="flex-1 flex items-center justify-center gap-2 border border-gray-200 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition text-gray-700"
+            className="flex-1 flex items-center justify-center gap-2 border border-gray-200
+              py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition text-gray-700"
           >
             <X size={14} />
             Close
