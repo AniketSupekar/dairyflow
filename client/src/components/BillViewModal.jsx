@@ -1,6 +1,22 @@
+/**
+ * components/BillViewModal.jsx
+ *
+ * CHANGES FROM PREVIOUS VERSION:
+ *   1. WhatsApp share button added to footer actions
+ *   2. shareOnWhatsApp() imported from whatsapp.util.js
+ *   3. No other logic changed
+ *
+ * UX decision:
+ *   - Button order: WhatsApp (primary action, green) → Download PDF → Close
+ *   - WhatsApp is the #1 action because the admin's job is to notify the
+ *     customer. Download is secondary (their own record-keeping).
+ *   - No phone number? Button still works — WA opens, user picks contact.
+ */
+
 import { useEffect } from "react";
 import { Download, X, CheckCircle2, Clock, AlertCircle, Building2 } from "lucide-react";
 import { useTenant } from "../hooks/useTenant";
+import { shareOnWhatsApp } from "../utils/whatsapp.util";
 import defaultLogo from "../assets/logo.png";
 
 export default function BillViewModal({ bill, customer, onClose, downloadBill }) {
@@ -20,7 +36,6 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
     });
 
   const fmtCurrency = (value) => `₹${Number(value || 0).toFixed(2)}`;
-
   const pending = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
 
   const statusConfig = {
@@ -31,9 +46,12 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
   const status     = statusConfig[bill.status] || statusConfig.UNPAID;
   const StatusIcon = status.icon;
 
-  // Resolved logo — tenant's uploaded logo, or app default
   const logoSrc      = tenant?.logoUrl || defaultLogo;
-  const businessName = tenant?.businessName || "Dairy";
+  const businessName = tenant?.businessName || tenant?.name || "Dairy";
+
+  const handleWhatsApp = () => {
+    shareOnWhatsApp({ bill, customer, dairyName: businessName });
+  };
 
   return (
     <div
@@ -48,7 +66,6 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
         {/* ── Header ── */}
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div className="flex items-center gap-4">
-            {/* Tenant logo — live from settings */}
             {logoSrc ? (
               <img
                 src={logoSrc}
@@ -166,18 +183,47 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
 
         {/* ── Footer Actions ── */}
         <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
+
+          {/* WhatsApp — primary action, leftmost, green */}
+          <button
+            onClick={handleWhatsApp}
+            className="flex-1 flex items-center justify-center gap-2 bg-[#25D366]
+              hover:bg-[#1ebe5d] active:bg-[#17a854] text-white py-2.5 rounded-xl
+              text-sm font-semibold transition-colors"
+          >
+            {/* WhatsApp SVG icon — no extra package needed */}
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15
+                -.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475
+                -.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52
+                .149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207
+                -.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372
+                -.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2
+                5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719
+                2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+              <path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.558 4.121 1.532 5.853L.073 23.927a.5.5
+                0 00.611.611l6.074-1.459A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12
+                0zm0 21.818a9.818 9.818 0 01-4.998-1.366l-.358-.213-3.715.893.907-3.617-.234-.372A9.818
+                9.818 0 1112 21.818z"/>
+            </svg>
+            Share on WhatsApp
+          </button>
+
+          {/* Download PDF */}
           <button
             onClick={() => downloadBill(bill._id)}
-            className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black
-              text-white py-2.5 rounded-xl text-sm font-semibold transition"
+            className="flex-1 flex items-center justify-center gap-2 bg-gray-900
+              hover:bg-black text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
           >
             <Download size={14} />
             Download PDF
           </button>
+
+          {/* Close */}
           <button
             onClick={onClose}
             className="flex-1 flex items-center justify-center gap-2 border border-gray-200
-              py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition text-gray-700"
+              py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors text-gray-700"
           >
             <X size={14} />
             Close

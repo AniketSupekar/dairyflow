@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { getOutstandingList } from "../../api/outstanding.api";
 import { getLanes } from "../../api/lane.api";
+import { useTenant } from "../../hooks/useTenant";
+import { buildReminderMessage, openWhatsApp } from "../../utils/whatsapp.util";
 import CustomerFinancialPanel from "../../components/CustomerFinancialPanel";
 import {
   AlertCircle, ArrowDownUp, Search, X,
@@ -23,7 +25,31 @@ const getUrgency = (oldestDate) => {
 const fmt = (n) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n);
 
+const RemindButton = ({ customerName, phone, outstanding, dairyName }) => {
+  const handleClick = (e) => {
+    e.stopPropagation();
+    const message = buildReminderMessage({ customerName, dairyName, outstanding });
+    openWhatsApp({ phone, message });
+  };
+  return (
+    <button
+      onClick={handleClick}
+      title="Send WhatsApp reminder"
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#25D366]
+        hover:bg-[#1ebe5d] text-white text-[11px] font-semibold transition-colors flex-shrink-0"
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+        <path d="M12 0C5.373 0 0 5.373 0 12c0 2.126.558 4.121 1.532 5.853L.073 23.927a.5.5 0 00.611.611l6.074-1.459A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-4.998-1.366l-.358-.213-3.715.893.907-3.617-.234-.372A9.818 9.818 0 1112 21.818z"/>
+      </svg>
+      Remind
+    </button>
+  );
+};
+
 const OutstandingPage = () => {
+  const { tenant } = useTenant();
+
   const [customers, setCustomers]   = useState([]);
   const [summary, setSummary]       = useState({ totalOutstanding: 0, totalCustomers: 0 });
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
@@ -32,24 +58,23 @@ const OutstandingPage = () => {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
 
-  // Filters & sort
   const [laneFilter, setLaneFilter] = useState("");
   const [search, setSearch]         = useState("");
   const [sortBy, setSortBy]         = useState("outstanding");
   const [order, setOrder]           = useState("desc");
   const [page, setPage]             = useState(1);
 
-  // Financial panel
   const [panelCustomer, setPanelCustomer] = useState(null);
 
-  // ── Fetch lanes once ────────────────────────────────────────────────────────
+  // Covers both possible field names from tenant model
+  const dairyName = tenant?.businessName || tenant?.name || "Dairy";
+
   useEffect(() => {
     getLanes()
       .then((res) => { setLanes(res.data.data); setLanesLoaded(true); })
       .catch(() => setLanesLoaded(true));
   }, []);
 
-  // ── Fetch outstanding (re-runs on filter/sort/page change) ─────────────────
   const fetchData = useCallback(async (resetPage = false) => {
     setLoading(true);
     setError("");
@@ -75,10 +100,8 @@ const OutstandingPage = () => {
     }
   }, [laneFilter, sortBy, order, page]);
 
-  // Run on mount and whenever fetchData deps change
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ── Reset page when filters/sort change ────────────────────────────────────
   const handleLaneFilter = (v) => { setLaneFilter(v); setSearch(""); setPage(1); };
   const handleSort = (field) => {
     if (sortBy === field) setOrder((o) => (o === "desc" ? "asc" : "desc"));
@@ -86,7 +109,6 @@ const OutstandingPage = () => {
     setPage(1);
   };
 
-  // ── Client-side search on current page only ────────────────────────────────
   const filtered = useMemo(() => {
     if (!search.trim()) return customers;
     const q = search.toLowerCase();
@@ -108,7 +130,6 @@ const OutstandingPage = () => {
   return (
     <div className="max-w-6xl mx-auto px-4 space-y-5">
 
-      {/* Financial panel */}
       {panelCustomer && (
         <CustomerFinancialPanel
           customerId={panelCustomer._id}
@@ -243,7 +264,6 @@ const OutstandingPage = () => {
       {/* Customer list */}
       {!loading && filtered.length > 0 && (
         <>
-          {/* Column headers — desktop only */}
           <div className="hidden sm:grid grid-cols-12 gap-2 px-5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
             <div className="col-span-4">Customer</div>
             <div className="col-span-2">Lane</div>
@@ -282,13 +302,21 @@ const OutstandingPage = () => {
                         <p className="text-[10px] text-gray-400 mt-0.5">outstanding</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <BillBadge unpaid={c.unpaidCount} partial={c.partialCount} />
-                      {urgency && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.cls}`}>
-                          {urgency.label}
-                        </span>
-                      )}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <BillBadge unpaid={c.unpaidCount} partial={c.partialCount} />
+                        {urgency && (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.cls}`}>
+                            {urgency.label}
+                          </span>
+                        )}
+                      </div>
+                      <RemindButton
+                        customerName={c.customerName}
+                        phone={c.phone}
+                        outstanding={c.outstanding}
+                        dairyName={dairyName}
+                      />
                     </div>
                   </div>
 
@@ -321,8 +349,14 @@ const OutstandingPage = () => {
                     <div className="col-span-2 text-right">
                       <p className="text-sm font-semibold text-green-600">₹{fmt(c.totalPaid)}</p>
                     </div>
-                    <div className="col-span-2 text-right">
+                    <div className="col-span-2 flex items-center justify-end gap-2">
                       <p className="text-base font-bold text-rose-600">₹{fmt(c.outstanding)}</p>
+                      <RemindButton
+                        customerName={c.customerName}
+                        phone={c.phone}
+                        outstanding={c.outstanding}
+                        dairyName={dairyName}
+                      />
                     </div>
                   </div>
                 </div>
