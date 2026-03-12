@@ -19,6 +19,7 @@ import UserDashboard       from "../features/dashboard/UserDashboard";
 import OutstandingPage     from "../features/outstanding/OutstandingPage";
 import BulkBillingPage     from "../features/bulkBilling/BulkBillingPage";
 import DeliverySummaryPage from "../features/deliverySummary/DeliverySummaryPage";
+import AnalyticsPage       from "../features/analytics/AnalyticsPage";
 
 const HomeRedirect = () => {
   const { user } = useContext(AuthContext);
@@ -49,6 +50,7 @@ const RouterContent = () => (
       <Route path="delivery-summary"   element={<DeliverySummaryPage />} />
       <Route path="billing"            element={<BillingPage />} />
       <Route path="outstanding"        element={<OutstandingPage />} />
+      <Route path="analytics"        element={<AnalyticsPage />} />
       <Route path="bulk-billing"       element={<BulkBillingPage />} />
       <Route path="settings"           element={<SettingsPage />} />
     </Route>

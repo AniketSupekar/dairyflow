@@ -2,7 +2,7 @@
  * modules/tenants/tenant.controller.js
  *
  * GET    /api/tenant/settings  → fetch own profile (used by TenantContext on load)
- * PATCH  /api/tenant/settings  → update name, phone, address, invoicePrefix
+ * PATCH  /api/tenant/settings  → update name, phone, address, invoicePrefix, upiId
  * POST   /api/tenant/logo      → upload / replace logo
  * DELETE /api/tenant/logo      → remove logo (revert to app default)
  */
@@ -14,7 +14,7 @@ const { uploadBuffer, deleteFile }       = require("../../utils/upload.util");
 const { handleLogoUpload }               = require("../../middleware/multer.middleware");
 
 // Fields the tenant is allowed to self-update (whitelist pattern)
-const UPDATABLE_FIELDS = ["name", "contactName", "phone", "address", "invoicePrefix"];
+const UPDATABLE_FIELDS = ["name", "contactName", "phone", "address", "invoicePrefix", "upiId"];
 
 // ─── GET /api/tenant/settings ─────────────────────────────────────────────────
 exports.getSettings = asyncHandler(async (req, res) => {
@@ -30,6 +30,7 @@ exports.getSettings = asyncHandler(async (req, res) => {
     address:       t.address       || "",
     logoUrl:       t.logoUrl       || "",
     invoicePrefix: t.invoicePrefix || "INV",
+    upiId:         t.upiId         || "",
     plan:          t.plan,
     trialEndsAt:   t.trialEndsAt,
     isTrialActive: new Date() < new Date(t.trialEndsAt),
@@ -78,6 +79,7 @@ exports.updateSettings = asyncHandler(async (req, res) => {
     phone:         updated.phone,
     address:       updated.address,
     invoicePrefix: updated.invoicePrefix,
+    upiId:         updated.upiId || "",
   });
 });
 

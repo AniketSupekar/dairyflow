@@ -5,6 +5,7 @@ const controller = require("./billing.controller");
 // ── Static routes FIRST (before /:id) ────────────────────────────────────────
 router.get ("/dashboard-stats",             controller.getDashboardStats);
 router.get ("/outstanding",                 controller.getOutstandingList);
+router.get("/analytics", controller.getAnalytics);
 
 // Bulk billing — preview, generate, download ZIP
 router.post("/bulk-preview",               controller.bulkPreview);

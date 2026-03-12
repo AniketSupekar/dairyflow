@@ -50,7 +50,7 @@ export default function BillViewModal({ bill, customer, onClose, downloadBill })
   const businessName = tenant?.businessName || tenant?.name || "Dairy";
 
   const handleWhatsApp = () => {
-    shareOnWhatsApp({ bill, customer, dairyName: businessName });
+    shareOnWhatsApp({ bill, customer, dairyName: businessName, upiId: tenant?.upiId || "" });
   };
 
   return (
