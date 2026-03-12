@@ -487,3 +487,151 @@ exports.bulkDownloadZip = async (req, res) => {
     if (!res.headersSent) return errorResponse(res, "Server error", 500);
   }
 };
+
+// ─── Analytics  GET /billing/analytics?fromMonth=2025-01&toMonth=2025-06 ─────
+// Also accepts legacy ?months=6 for backward compat
+// Add this function to billing.controller.js
+// Add to billing.routes.js: router.get("/analytics", controller.getAnalytics);
+exports.getAnalytics = async (req, res) => {
+  try {
+    const tenantId    = req.tenantId;
+    const tenantObjId = new mongoose.Types.ObjectId(tenantId);
+
+    // Support both fromMonth/toMonth and legacy months param
+    let fromMonth = req.query.fromMonth;
+    let toMonth   = req.query.toMonth;
+
+    if (!fromMonth || !toMonth) {
+      const months = Math.min(parseInt(req.query.months) || 6, 12);
+      const now    = new Date();
+      toMonth   = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+      fromMonth = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    // Parse date boundaries
+    const [fromY, fromM] = fromMonth.split("-").map(Number);
+    const [toY,   toM]   = toMonth.split("-").map(Number);
+    const rangeStart = new Date(fromY, fromM - 1, 1);
+    rangeStart.setUTCHours(0, 0, 0, 0);
+    const rangeEnd = new Date(toY, toM, 0, 23, 59, 59); // last day of toMonth
+
+    // Current month for summary cards
+    const now        = new Date();
+    const monthStart = new Date(toY, toM - 1, 1);
+    const monthEnd   = new Date(toY, toM, 0, 23, 59, 59);
+
+    const [
+      billsByMonth,
+      paymentsByMonth,
+      paymentModes,
+      topOutstanding,
+      periodBills,
+      periodPayments,
+    ] = await Promise.all([
+
+      // Bills grouped by month
+      Bill.aggregate([
+        { $match: { tenantId: tenantObjId, fromDate: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: {
+            _id:         "$month",
+            totalBilled: { $sum: "$totalAmount" },
+            totalPaid:   { $sum: "$amountPaid" },
+            billCount:   { $sum: 1 },
+        }},
+        { $sort: { _id: 1 } },
+      ]),
+
+      // Payments grouped by month
+      Payment.aggregate([
+        { $match: { tenantId: tenantObjId, isActive: true, date: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: {
+            _id:       { $dateToString: { format: "%Y-%m", date: "$date" } },
+            collected: { $sum: "$amount" },
+        }},
+        { $sort: { _id: 1 } },
+      ]),
+
+      // Payment mode breakdown for the period
+      Payment.aggregate([
+        { $match: { tenantId: tenantObjId, isActive: true, date: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: { _id: "$paymentMode", count: { $sum: 1 }, amount: { $sum: "$amount" } } },
+      ]),
+
+      // Top 5 outstanding customers (all time — not filtered by range, always useful)
+      Bill.aggregate([
+        { $match: { tenantId: tenantObjId, status: { $in: ["UNPAID", "PARTIAL"] } } },
+        { $group: { _id: "$customerId", totalAmount: { $sum: "$totalAmount" }, amountPaid: { $sum: "$amountPaid" } } },
+        { $addFields: { outstanding: { $subtract: ["$totalAmount", "$amountPaid"] } } },
+        { $sort: { outstanding: -1 } },
+        { $limit: 5 },
+        { $lookup: { from: "customers", localField: "_id", foreignField: "_id", as: "customer" } },
+        { $unwind: "$customer" },
+        { $project: { customerId: "$_id", name: "$customer.name", outstanding: 1, totalAmount: 1, amountPaid: 1 } },
+      ]),
+
+      // Period summary (billed/collected/outstanding for selected range)
+      Bill.aggregate([
+        { $match: { tenantId: tenantObjId, fromDate: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: { _id: null, totalBilled: { $sum: "$totalAmount" }, totalPaid: { $sum: "$amountPaid" }, billCount: { $sum: 1 } } },
+      ]),
+
+      Payment.aggregate([
+        { $match: { tenantId: tenantObjId, isActive: true, date: { $gte: rangeStart, $lte: rangeEnd } } },
+        { $group: { _id: null, collected: { $sum: "$amount" } } },
+      ]),
+    ]);
+
+    // Build monthly revenue array filling gaps for months with no data
+    const paymentMonthMap = Object.fromEntries(paymentsByMonth.map((p) => [p._id, p.collected]));
+    const monthlyRevenue  = [];
+    const cursor = new Date(fromY, fromM - 1, 1);
+    const endCursor = new Date(toY, toM - 1, 1);
+    while (cursor <= endCursor) {
+      const key  = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+      const bill = billsByMonth.find((b) => b._id === key);
+      monthlyRevenue.push({
+        month:     key,
+        label:     cursor.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+        billed:    Math.round((bill?.totalBilled   || 0) * 100) / 100,
+        collected: Math.round((paymentMonthMap[key] || 0) * 100) / 100,
+        billCount: bill?.billCount || 0,
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    // Overall collection rate for the period
+    const totalBilledAll = billsByMonth.reduce((s, b) => s + b.totalBilled, 0);
+    const totalCollected = paymentsByMonth.reduce((s, p) => s + p.collected, 0);
+    const collectionRate = totalBilledAll > 0 ? Math.round((totalCollected / totalBilledAll) * 100) : 0;
+
+    // Payment modes
+    const modeMap = { CASH: { count: 0, amount: 0 }, UPI: { count: 0, amount: 0 }, BANK: { count: 0, amount: 0 }, OTHER: { count: 0, amount: 0 } };
+    paymentModes.forEach((m) => {
+      if (modeMap[m._id]) modeMap[m._id] = { count: m.count, amount: Math.round(m.amount * 100) / 100 };
+    });
+
+    // Period summary card data
+    const pb   = periodBills[0]    || { totalBilled: 0, totalPaid: 0, billCount: 0 };
+    const pc   = periodPayments[0] || { collected: 0 };
+    const currentMonth = {
+      billed:      Math.round(pb.totalBilled * 100) / 100,
+      collected:   Math.round(pc.collected   * 100) / 100,
+      outstanding: Math.round(Math.max(0, pb.totalBilled - pb.totalPaid) * 100) / 100,
+      billCount:   pb.billCount,
+    };
+
+    return successResponse(res, "Analytics fetched", {
+      monthlyRevenue,
+      collectionRate,
+      paymentModes: modeMap,
+      topOutstanding,
+      currentMonth,
+      fromMonth,
+      toMonth,
+    });
+  } catch (error) {
+    console.error("ANALYTICS ERROR:", error);
+    return errorResponse(res, "Server error", 500);
+  }
+};

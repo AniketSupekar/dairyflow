@@ -20,6 +20,7 @@ const navItems = [
   { name: "Financials",       to: "/admin/billing",          icon: Wallet },
   { name: "Outstanding",      to: "/admin/outstanding",      icon: TrendingDown },
   { name: "Bulk Billing",     to: "/admin/bulk-billing",     icon: Zap },
+  { name: "Analytics",      to: "/admin/analytics",        icon: BarChart2 },
 ];
 
 const AdminLayout = () => {

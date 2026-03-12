@@ -70,6 +70,15 @@ const tenantSchema = new mongoose.Schema(
       maxlength: [6, "Prefix cannot exceed 6 characters"],
     },
 
+     upiId: {
+      type:      String,
+      trim:      true,
+      default:   "",
+      maxlength: [100, "UPI ID cannot exceed 100 characters"],
+      // Basic VPA validation: something@something
+      match: [/^$|^[a-zA-Z0-9.\-_+]+@[a-zA-Z0-9]+$/, "Enter a valid UPI ID (e.g. 9876543210@ybl)"],
+    },
+
     // ── Plan management ───────────────────────────────────────────────────────
     // No payment logic yet — fields are ready for when subscriptions are added.
     plan: {

@@ -3,6 +3,11 @@
  *
  * TODAY  → wa.me deep link — free, no API, works on any device
  * FUTURE → swap openWhatsApp() for WATI/Twilio API call at 10+ tenants
+ *
+ * UPI deep link format (appended when upiId is set on tenant):
+ *   upi://pay?pa={upiId}&pn={dairyName}&am={amount}&cu=INR&tn=Milk+Bill
+ *   → opens PhonePe / GPay / Paytm app chooser on customer's phone
+ *   → zero transaction fee, owner's own UPI ID, customer pays directly
  */
 
 const fmtRs = (val) => `Rs. ${Number(val || 0).toFixed(2)}`;
@@ -17,13 +22,37 @@ const fmtPeriod = (from, to) => {
 };
 
 /**
+ * Builds the UPI deep link line appended to messages.
+ * Returns empty string if upiId is not set or amount is 0 or negative.
+ *
+ * @param {string} upiId      - tenant UPI VPA e.g. "9876543210@ybl"
+ * @param {string} dairyName  - shown as payee name in UPI app
+ * @param {number} amount     - exact amount due (must be > 0)
+ */
+const buildUpiLine = (upiId, dairyName, amount) => {
+  if (!upiId || !upiId.trim() || Number(amount) <= 0) return "";
+
+  const pa  = encodeURIComponent(upiId.trim());
+  const pn  = encodeURIComponent(dairyName || "Dairy");
+  const am  = Number(amount).toFixed(2);
+  const tn  = encodeURIComponent("Milk Bill");
+  const url = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR&tn=${tn}`;
+
+  return (
+    `\n*Pay Now:* ${url}\n` +
+    `_(Tap to pay via PhonePe, GPay, or Paytm)_`
+  );
+};
+
+/**
  * Full bill message — sent from BillViewModal after generating a bill.
  *
  * @param {object} params.bill        - bill document
  * @param {object} params.customer    - { name, phone }
  * @param {string} params.dairyName   - tenant.name (pass explicitly, don't rely on context here)
+ * @param {string} [params.upiId]     - tenant UPI ID (optional — appends pay link if set)
  */
-export const buildWhatsAppMessage = ({ bill, customer, dairyName }) => {
+export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
   const pending  = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
   const isPaid   = bill.status === "PAID";
   const period   = fmtPeriod(bill.fromDate, bill.toDate);
@@ -34,21 +63,24 @@ export const buildWhatsAppMessage = ({ bill, customer, dairyName }) => {
     return (
       `Namaste ${name},\n\n` +
       `Your milk delivery bill from *${dairy}* has been settled. Thank you for the payment.\n\n` +
-      `- Period  : ${period}\n` +
+      `- Period      : ${period}\n` +
       `- Amount Paid : ${fmtRs(bill.amountPaid)}\n` +
-      `- Status  : Paid in full\n\n` +
+      `- Status      : Paid in full\n\n` +
       `For any queries, feel free to contact us.`
     );
   }
 
+  const upiLine = buildUpiLine(upiId, dairy, pending);
+
   return (
     `Namaste ${name},\n\n` +
     `Please find your milk delivery bill from *${dairy}* below.\n\n` +
-    `- Period      : ${period}\n` +
+    `- Period       : ${period}\n` +
     `- Total Amount : ${fmtRs(bill.totalAmount)}\n` +
     `- Amount Paid  : ${fmtRs(bill.amountPaid)}\n` +
-    `- *Balance Due  : ${fmtRs(pending)}*\n\n` +
-    `Kindly clear the balance at your earliest convenience.\n` +
+    `- *Balance Due : ${fmtRs(pending)}*\n` +
+    upiLine +
+    `\n\nKindly clear the balance at your earliest convenience.\n` +
     `Thank you.`
   );
 };
@@ -59,17 +91,21 @@ export const buildWhatsAppMessage = ({ bill, customer, dairyName }) => {
  * @param {string} params.customerName
  * @param {string} params.dairyName
  * @param {number} params.outstanding
+ * @param {string} [params.upiId]       - optional — appends pay link if set
  */
-export const buildReminderMessage = ({ customerName, dairyName, outstanding }) => {
+export const buildReminderMessage = ({ customerName, dairyName, outstanding, upiId }) => {
   const dairy  = dairyName || "Dairy";
   const name   = customerName || "Customer";
   const amount = fmtRs(outstanding);
 
+  const upiLine = buildUpiLine(upiId, dairy, outstanding);
+
   return (
     `Namaste ${name},\n\n` +
     `This is a gentle reminder from *${dairy}* regarding your outstanding milk delivery dues.\n\n` +
-    `- *Balance Due : ${amount}*\n\n` +
-    `Kindly clear the balance at your earliest convenience.\n` +
+    `- *Balance Due : ${amount}*\n` +
+    upiLine +
+    `\n\nKindly clear the balance at your earliest convenience.\n` +
     `Thank you.`
   );
 };
@@ -103,10 +139,10 @@ export const openWhatsApp = ({ phone, message }) => {
  * One-shot: build bill message + open WhatsApp.
  * Used in BillViewModal.
  *
- * IMPORTANT: pass dairyName explicitly from useTenant() at the call site:
- *   shareOnWhatsApp({ bill, customer, dairyName: tenant?.name })
+ * Pass upiId from useTenant() at the call site:
+ *   shareOnWhatsApp({ bill, customer, dairyName: tenant?.name, upiId: tenant?.upiId })
  */
-export const shareOnWhatsApp = ({ bill, customer, dairyName }) => {
-  const message = buildWhatsAppMessage({ bill, customer, dairyName });
+export const shareOnWhatsApp = ({ bill, customer, dairyName, upiId }) => {
+  const message = buildWhatsAppMessage({ bill, customer, dairyName, upiId });
   openWhatsApp({ phone: customer?.phone, message });
 };
