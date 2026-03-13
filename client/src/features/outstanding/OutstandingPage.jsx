@@ -25,11 +25,11 @@ const getUrgency = (oldestDate) => {
 const fmt = (n) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n);
 
-// ── RemindButton — now accepts upiId ─────────────────────────────────────────
-const RemindButton = ({ customerName, phone, outstanding, dairyName, upiId }) => {
+// ── RemindButton — logoUrl received as prop (tenant not in scope here) ────────
+const RemindButton = ({ customerName, phone, outstanding, dairyName, upiId, logoUrl }) => {
   const handleClick = (e) => {
     e.stopPropagation();
-    const message = buildReminderMessage({ customerName, dairyName, outstanding, upiId });
+    const message = buildReminderMessage({ customerName, dairyName, outstanding, upiId, logoUrl });
     openWhatsApp({ phone, message });
   };
   return (
@@ -68,7 +68,8 @@ const OutstandingPage = () => {
   const [panelCustomer, setPanelCustomer] = useState(null);
 
   const dairyName = tenant?.businessName || tenant?.name || "Dairy";
-  const upiId     = tenant?.upiId || "";
+  const upiId     = tenant?.upiId    || "";
+  const logoUrl   = tenant?.logoUrl  || "";
 
   useEffect(() => {
     getLanes()
@@ -271,7 +272,14 @@ const OutstandingPage = () => {
                         <BillBadge unpaid={c.unpaidCount} partial={c.partialCount} />
                         {urgency && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${urgency.cls}`}>{urgency.label}</span>}
                       </div>
-                      <RemindButton customerName={c.customerName} phone={c.phone} outstanding={c.outstanding} dairyName={dairyName} upiId={upiId} />
+                      <RemindButton
+                        customerName={c.customerName}
+                        phone={c.phone}
+                        outstanding={c.outstanding}
+                        dairyName={dairyName}
+                        upiId={upiId}
+                        logoUrl={logoUrl}
+                      />
                     </div>
                   </div>
 
@@ -298,7 +306,14 @@ const OutstandingPage = () => {
                     </div>
                     <div className="col-span-2 flex items-center justify-end gap-2">
                       <p className="text-base font-bold text-rose-600">₹{fmt(c.outstanding)}</p>
-                      <RemindButton customerName={c.customerName} phone={c.phone} outstanding={c.outstanding} dairyName={dairyName} upiId={upiId} />
+                      <RemindButton
+                        customerName={c.customerName}
+                        phone={c.phone}
+                        outstanding={c.outstanding}
+                        dairyName={dairyName}
+                        upiId={upiId}
+                        logoUrl={logoUrl}
+                      />
                     </div>
                   </div>
                 </div>

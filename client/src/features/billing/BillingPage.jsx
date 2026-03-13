@@ -52,7 +52,7 @@ const triggerDownload = (blob, filename) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // WHATSAPP BLAST MODAL
 // ─────────────────────────────────────────────────────────────────────────────
-function WhatsAppBlastModal({ customers, outstandingMap, laneName, dairyName, upiId, onClose }) {
+function WhatsAppBlastModal({ customers, outstandingMap, laneName, dairyName, upiId, logoUrl, onClose }) {
   const [billMap, setBillMap]     = useState({});
   const [loading, setLoading]     = useState(true);
   const [selected, setSelected]   = useState(new Set());
@@ -115,7 +115,7 @@ function WhatsAppBlastModal({ customers, outstandingMap, laneName, dairyName, up
     const { items, index, results } = sendQueue;
     const { customer, bill } = items[index];
     // Direct user click → window.open always works
-    openWhatsApp({ phone: customer.phone, message: buildWhatsAppMessage({ bill, customer, dairyName, upiId }) });
+    openWhatsApp({ phone: customer.phone, message: buildWhatsAppMessage({ bill, customer, dairyName, upiId, logoUrl }) });
     const newResults = [...results, { customer, status: "sent", reason: null }];
     const nextIndex  = index + 1;
     if (nextIndex >= items.length) { setSendResults(newResults); setSendQueue(null); setSendDone(true); }
@@ -543,6 +543,7 @@ const BillingPage = () => {
           laneName={selectedLaneName}
           dairyName={dairyName}
           upiId={upiId}
+          logoUrl={tenant?.logoUrl}
           onClose={() => setBlastOpen(false)}
         />
       )}
