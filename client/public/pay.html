@@ -8,7 +8,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #f0fdf4;
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -17,93 +17,206 @@
     }
     .card {
       background: white;
-      border-radius: 16px;
-      padding: 32px 24px;
-      max-width: 360px;
+      border-radius: 20px;
+      padding: 36px 28px 28px;
+      max-width: 380px;
       width: 100%;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.10);
       text-align: center;
     }
-    .icon { font-size: 48px; margin-bottom: 12px; }
-    .dairy { font-size: 18px; font-weight: 700; color: #111; margin-bottom: 4px; }
-    .label { font-size: 13px; color: #6b7280; margin-bottom: 20px; }
-    .amount {
-      font-size: 36px;
-      font-weight: 800;
-      color: #16a34a;
-      margin-bottom: 8px;
+    .logo-wrap {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      overflow: hidden;
+      background: #f0fdf4;
+      border: 3px solid #bbf7d0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
     }
-    .upi-id {
+    .logo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .dairy {
+      font-size: 20px;
+      font-weight: 800;
+      color: #111827;
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+    .label {
       font-size: 13px;
       color: #6b7280;
-      background: #f9fafb;
-      border-radius: 8px;
-      padding: 8px 12px;
+      margin-bottom: 28px;
+    }
+    .divider {
+      height: 1px;
+      background: #f3f4f6;
       margin-bottom: 24px;
+    }
+    .amount-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+    .amount {
+      font-size: 44px;
+      font-weight: 800;
+      color: #16a34a;
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+    .upi-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 24px;
+    }
+    .upi-row span {
+      font-size: 13px;
+      color: #374151;
+      font-weight: 500;
       word-break: break-all;
+    }
+    .upi-icon {
+      font-size: 16px;
+      flex-shrink: 0;
     }
     .btn {
       display: block;
       width: 100%;
-      padding: 14px;
+      padding: 15px;
       border-radius: 12px;
       border: none;
       font-size: 16px;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
       text-decoration: none;
-      margin-bottom: 12px;
-      transition: opacity 0.15s;
+      margin-bottom: 10px;
+      transition: transform 0.1s, opacity 0.1s;
+      letter-spacing: 0.2px;
     }
-    .btn:active { opacity: 0.8; }
-    .btn-primary { background: #16a34a; color: white; }
-    .btn-secondary { background: #f3f4f6; color: #374151; font-size: 14px; }
-    .note { font-size: 12px; color: #9ca3af; margin-top: 16px; line-height: 1.5; }
-    .redirecting { color: #16a34a; font-size: 14px; margin-top: 16px; display: none; }
+    .btn:active { transform: scale(0.98); opacity: 0.9; }
+    .btn-primary {
+      background: linear-gradient(135deg, #16a34a, #15803d);
+      color: white;
+      box-shadow: 0 4px 12px rgba(22,163,74,0.3);
+    }
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .redirecting {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #16a34a;
+      font-size: 14px;
+      font-weight: 500;
+      margin: 12px 0;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid #bbf7d0;
+      border-top-color: #16a34a;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .note {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+    .powered {
+      font-size: 11px;
+      color: #d1d5db;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">🥛</div>
+    <div class="logo-wrap" id="logoWrap">
+      <span id="logoEmoji">🥛</span>
+    </div>
     <div class="dairy" id="dairyName">Dairy</div>
-    <div class="label">Milk Bill Payment</div>
+    <div class="label">Milk Bill Payment Request</div>
+    <div class="divider"></div>
+    <div class="amount-label">Amount Due</div>
     <div class="amount" id="amount">₹0</div>
-    <div class="upi-id" id="upiId">UPI ID</div>
+    <div class="upi-row">
+      <span class="upi-icon">💳</span>
+      <span id="upiId">UPI ID</span>
+    </div>
     <a class="btn btn-primary" id="payBtn" href="#">Pay Now →</a>
     <button class="btn btn-secondary" id="copyBtn" onclick="copyUpi()">Copy UPI ID</button>
-    <div class="redirecting" id="redirecting">Opening your UPI app...</div>
+    <div class="redirecting" id="redirecting">
+      <div class="spinner"></div>
+      Opening your UPI app...
+    </div>
     <div class="note">
       Tap "Pay Now" to open PhonePe, GPay, or Paytm.<br/>
-      Amount is pre-filled. Enter your UPI PIN to pay.
+      Amount is pre-filled — just enter your UPI PIN to pay.
     </div>
+    <div class="powered">Powered by DairyFlow</div>
   </div>
 
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const pa = params.get("pa") || "";
-    const pn = params.get("pn") || "Dairy";
-    const am = params.get("am") || "0";
-    const tn = params.get("tn") || "Milk Bill";
+    const params  = new URLSearchParams(window.location.search);
+    const pa      = params.get("pa")   || "";
+    const pn      = params.get("pn")   || "Dairy";
+    const am      = params.get("am")   || "0";
+    const tn      = params.get("tn")   || "Milk Bill";
+    const logoUrl = params.get("logo") || "";
 
     // Populate UI
     document.getElementById("dairyName").textContent = pn;
-    document.getElementById("amount").textContent = "₹" + parseFloat(am).toFixed(2);
-    document.getElementById("upiId").textContent = pa;
+    document.getElementById("amount").textContent    = "₹" + parseFloat(am).toFixed(2);
+    document.getElementById("upiId").textContent     = pa;
+    document.title = `Pay ${pn} · ₹${parseFloat(am).toFixed(2)}`;
+
+    // Logo — show image if available, else keep emoji
+    if (logoUrl) {
+      const img = document.createElement("img");
+      img.src = logoUrl;
+      img.alt = pn;
+      img.onerror = () => {}; // keep emoji on error
+      document.getElementById("logoWrap").innerHTML = "";
+      document.getElementById("logoWrap").appendChild(img);
+    }
 
     // Build UPI deep link
     const upiLink = `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${am}&cu=INR&tn=${encodeURIComponent(tn)}`;
     document.getElementById("payBtn").href = upiLink;
 
-    // Auto-redirect on mobile after short delay
+    // Auto-redirect on mobile
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
     if (isMobile && pa && parseFloat(am) > 0) {
-      document.getElementById("redirecting").style.display = "block";
-      setTimeout(() => { window.location.href = upiLink; }, 800);
+      const el = document.getElementById("redirecting");
+      el.style.display = "flex";
+      setTimeout(() => { window.location.href = upiLink; }, 1000);
     }
 
     function copyUpi() {
       navigator.clipboard.writeText(pa).then(() => {
-        document.getElementById("copyBtn").textContent = "Copied!";
+        document.getElementById("copyBtn").textContent = "✓ Copied!";
         setTimeout(() => {
           document.getElementById("copyBtn").textContent = "Copy UPI ID";
         }, 2000);
