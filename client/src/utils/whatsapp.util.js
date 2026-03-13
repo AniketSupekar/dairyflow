@@ -4,17 +4,12 @@
  * TODAY  → wa.me deep link — free, no API, works on any device
  * FUTURE → swap openWhatsApp() for WATI/Twilio API call at 10+ tenants
  *
- * UPI payment link strategy:
- *   Raw upi:// links appear as plain unclickable text in WhatsApp.
- *   Instead we send an HTTPS link to our own /api/pay endpoint which
- *   does a 302 redirect to upi:// — WhatsApp makes HTTPS links tappable,
- *   customer taps → browser → instantly redirects to PhonePe/GPay/Paytm.
- *
- *   Link format: https://{APP_DOMAIN}/api/pay?pa=upiid&pn=Dairy&am=500&tn=Milk+Bill
+ * UPI payment link:
+ *   Clean /pay URL → Vercel serves pay.html → auto-redirects to upi://
+ *   WhatsApp makes https:// links tappable — customer taps → UPI app opens
+ *   with dairy name, logo and amount pre-filled.
  */
 
-// ── App domain (set VITE_APP_URL in your .env, e.g. https://yourapp.vercel.app) ──
-// Falls back to current origin so it works in dev too
 const APP_DOMAIN =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_URL) ||
   (typeof window !== "undefined" ? window.location.origin : "");
@@ -31,25 +26,25 @@ const fmtPeriod = (from, to) => {
 };
 
 /**
- * Builds a tappable HTTPS pay link that redirects to upi:// on the device.
+ * Builds a tappable HTTPS pay link.
  * Returns empty string if upiId is not set or amount is 0 / negative.
  *
  * @param {string} upiId      - tenant UPI VPA e.g. "9876543210@ybl"
  * @param {string} dairyName  - shown as payee name in UPI app
  * @param {number} amount     - exact amount due (must be > 0)
+ * @param {string} [logoUrl]  - tenant logo Cloudinary URL (optional)
  */
-const buildUpiLine = (upiId, dairyName, amount) => {
+const buildUpiLine = (upiId, dairyName, amount, logoUrl) => {
   if (!upiId || !upiId.trim() || Number(amount) <= 0) return "";
 
-  // Build URL manually with encodeURIComponent (uses %20 not +)
-  // WhatsApp's link detector breaks on + signs — %20 keeps it a clean URL
   const pa = encodeURIComponent(upiId.trim());
   const pn = encodeURIComponent(dairyName || "Dairy");
   const am = Number(amount).toFixed(2);
   const tn = encodeURIComponent("Milk Bill");
 
-  // HTTPS link → tappable in WhatsApp → backend redirects to upi://
-  const payUrl = `${APP_DOMAIN}/pay.html?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}`;
+  // Clean pay.html URL — tappable in WhatsApp, Vercel serves it directly
+  let payUrl = `${APP_DOMAIN}/pay.html?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}`;
+  if (logoUrl) payUrl += `&logo=${encodeURIComponent(logoUrl)}`;
 
   return (
     `\n💳 *Pay Now:* ${payUrl}\n` +
@@ -64,8 +59,9 @@ const buildUpiLine = (upiId, dairyName, amount) => {
  * @param {object} params.customer    - { name, phone }
  * @param {string} params.dairyName   - tenant.name
  * @param {string} [params.upiId]     - tenant UPI ID (optional)
+ * @param {string} [params.logoUrl]   - tenant logo URL (optional)
  */
-export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
+export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId, logoUrl }) => {
   const pending  = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
   const isPaid   = bill.status === "PAID";
   const period   = fmtPeriod(bill.fromDate, bill.toDate);
@@ -83,7 +79,7 @@ export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
     );
   }
 
-  const upiLine = buildUpiLine(upiId, dairy, pending);
+  const upiLine = buildUpiLine(upiId, dairy, pending, logoUrl);
 
   return (
     `Namaste ${name},\n\n` +
@@ -105,13 +101,14 @@ export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
  * @param {string} params.dairyName
  * @param {number} params.outstanding
  * @param {string} [params.upiId]       - optional
+ * @param {string} [params.logoUrl]     - optional
  */
-export const buildReminderMessage = ({ customerName, dairyName, outstanding, upiId }) => {
+export const buildReminderMessage = ({ customerName, dairyName, outstanding, upiId, logoUrl }) => {
   const dairy  = dairyName || "Dairy";
   const name   = customerName || "Customer";
   const amount = fmtRs(outstanding);
 
-  const upiLine = buildUpiLine(upiId, dairy, outstanding);
+  const upiLine = buildUpiLine(upiId, dairy, outstanding, logoUrl);
 
   return (
     `Namaste ${name},\n\n` +
@@ -125,19 +122,17 @@ export const buildReminderMessage = ({ customerName, dairyName, outstanding, upi
 
 /**
  * Normalizes Indian phone numbers to E.164 format (without +).
- * Handles: 10-digit, 0-prefixed 11-digit, 91-prefixed 12-digit.
  */
 const normalizePhone = (phone) => {
   const digits = (phone || "").replace(/\D/g, "");
-  if (digits.length === 10)                                return `91${digits}`;
-  if (digits.length === 11 && digits.startsWith("0"))      return `91${digits.slice(1)}`;
-  if (digits.length === 12 && digits.startsWith("91"))     return digits;
+  if (digits.length === 10)                            return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
   return digits;
 };
 
 /**
  * Opens WhatsApp with a pre-filled message.
- * Mobile → opens WA app. Desktop → opens web.whatsapp.com.
  */
 export const openWhatsApp = ({ phone, message }) => {
   const num     = normalizePhone(phone);
@@ -152,7 +147,7 @@ export const openWhatsApp = ({ phone, message }) => {
  * One-shot: build bill message + open WhatsApp.
  * Used in BillViewModal.
  */
-export const shareOnWhatsApp = ({ bill, customer, dairyName, upiId }) => {
-  const message = buildWhatsAppMessage({ bill, customer, dairyName, upiId });
+export const shareOnWhatsApp = ({ bill, customer, dairyName, upiId, logoUrl }) => {
+  const message = buildWhatsAppMessage({ bill, customer, dairyName, upiId, logoUrl });
   openWhatsApp({ phone: customer?.phone, message });
 };
