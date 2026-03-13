@@ -1,16 +1,9 @@
 /**
  * app.js — Express application setup
- *
- * Changes from previous version:
- *   + tenantMiddleware on all protected routes (loads req.tenant)
- *   + tenant routes registered
- *   + rate limiting on auth routes
- *   + request body size limit (10kb — prevents memory abuse)
- *   + app name reads from env, not hardcoded
  */
 
 require("dotenv").config();
-const env = require("./config/env"); // validates all required env vars at startup
+const env = require("./config/env");
 
 const express   = require("express");
 const cors      = require("cors");
@@ -26,6 +19,7 @@ const productRoutes  = require("./modules/products/product.routes");
 const laneRoutes     = require("./modules/lanes/lane.routes");
 const userRoutes     = require("./modules/users/user.routes");
 const tenantRoutes   = require("./modules/tenants/tenant.routes");
+const payRoutes      = require("./modules/pay/pay.routes");
 
 const authMiddleware   = require("./middleware/auth.middleware");
 const tenantMiddleware = require("./middleware/tenant.middleware");
@@ -47,23 +41,23 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // Postman / server-to-server
+      if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials:    true,
-    exposedHeaders: ["Content-Disposition"], // required for PDF filename in browser
+    exposedHeaders: ["Content-Disposition"],
   })
 );
 
-// ── Body parsing — 10kb limit prevents request body memory abuse ──────────────
+// ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 if (env.isDev) app.use(morgan("dev"));
 
-// ── Health / info routes (public, no auth) ────────────────────────────────────
+// ── Health / info routes (public) ─────────────────────────────────────────────
 app.get("/", (_req, res) => {
   res.status(200).json({
     app:         "Dairy SaaS API",
@@ -82,23 +76,21 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// ── Public routes ─────────────────────────────────────────────────────────────
+// ── Public routes (NO auth) ───────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/pay",  payRoutes);                // UPI redirect — must stay public
 
-// ── Protected routes ──────────────────────────────────────────────────────────
-// authMiddleware    → validates JWT, sets req.userId + req.tenantId + req.role
-// tenantMiddleware  → loads Tenant doc into req.tenant (one DB call per request)
-// apiLimiter        → general rate limit on all protected routes
-app.use("/api", authMiddleware, tenantMiddleware, apiLimiter);
+// ── Protected routes (auth + tenant + rate limit applied per route) ───────────
+const protect = [authMiddleware, tenantMiddleware, apiLimiter];
 
-app.use("/api/tenant",     tenantRoutes);
-app.use("/api/deliveries", deliveryRoutes);
-app.use("/api/payments",   paymentRoutes);
-app.use("/api/billing",    billingRoutes);
-app.use("/api/customers",  customerRoutes);
-app.use("/api/products",   productRoutes);
-app.use("/api/lanes",      laneRoutes);
-app.use("/api/users",      userRoutes);
+app.use("/api/tenant",     protect, tenantRoutes);
+app.use("/api/deliveries", protect, deliveryRoutes);
+app.use("/api/payments",   protect, paymentRoutes);
+app.use("/api/billing",    protect, billingRoutes);
+app.use("/api/customers",  protect, customerRoutes);
+app.use("/api/products",   protect, productRoutes);
+app.use("/api/lanes",      protect, laneRoutes);
+app.use("/api/users",      protect, userRoutes);
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use(errorMiddleware);

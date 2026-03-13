@@ -4,11 +4,20 @@
  * TODAY  → wa.me deep link — free, no API, works on any device
  * FUTURE → swap openWhatsApp() for WATI/Twilio API call at 10+ tenants
  *
- * UPI deep link format (appended when upiId is set on tenant):
- *   upi://pay?pa={upiId}&pn={dairyName}&am={amount}&cu=INR&tn=Milk+Bill
- *   → opens PhonePe / GPay / Paytm app chooser on customer's phone
- *   → zero transaction fee, owner's own UPI ID, customer pays directly
+ * UPI payment link strategy:
+ *   Raw upi:// links appear as plain unclickable text in WhatsApp.
+ *   Instead we send an HTTPS link to our own /api/pay endpoint which
+ *   does a 302 redirect to upi:// — WhatsApp makes HTTPS links tappable,
+ *   customer taps → browser → instantly redirects to PhonePe/GPay/Paytm.
+ *
+ *   Link format: https://{APP_DOMAIN}/api/pay?pa=upiid&pn=Dairy&am=500&tn=Milk+Bill
  */
+
+// ── App domain (set VITE_APP_URL in your .env, e.g. https://yourapp.vercel.app) ──
+// Falls back to current origin so it works in dev too
+const APP_DOMAIN =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_URL) ||
+  (typeof window !== "undefined" ? window.location.origin : "");
 
 const fmtRs = (val) => `Rs. ${Number(val || 0).toFixed(2)}`;
 
@@ -22,8 +31,8 @@ const fmtPeriod = (from, to) => {
 };
 
 /**
- * Builds the UPI deep link line appended to messages.
- * Returns empty string if upiId is not set or amount is 0 or negative.
+ * Builds a tappable HTTPS pay link that redirects to upi:// on the device.
+ * Returns empty string if upiId is not set or amount is 0 / negative.
  *
  * @param {string} upiId      - tenant UPI VPA e.g. "9876543210@ybl"
  * @param {string} dairyName  - shown as payee name in UPI app
@@ -32,14 +41,18 @@ const fmtPeriod = (from, to) => {
 const buildUpiLine = (upiId, dairyName, amount) => {
   if (!upiId || !upiId.trim() || Number(amount) <= 0) return "";
 
-  const pa  = encodeURIComponent(upiId.trim());
-  const pn  = encodeURIComponent(dairyName || "Dairy");
-  const am  = Number(amount).toFixed(2);
-  const tn  = encodeURIComponent("Milk Bill");
-  const url = `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR&tn=${tn}`;
+  // Build URL manually with encodeURIComponent (uses %20 not +)
+  // WhatsApp's link detector breaks on + signs — %20 keeps it a clean URL
+  const pa = encodeURIComponent(upiId.trim());
+  const pn = encodeURIComponent(dairyName || "Dairy");
+  const am = Number(amount).toFixed(2);
+  const tn = encodeURIComponent("Milk Bill");
+
+  // HTTPS link → tappable in WhatsApp → backend redirects to upi://
+  const payUrl = `${APP_DOMAIN}/pay.html?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}`;
 
   return (
-    `\n*Pay Now:* ${url}\n` +
+    `\n💳 *Pay Now:* ${payUrl}\n` +
     `_(Tap to pay via PhonePe, GPay, or Paytm)_`
   );
 };
@@ -49,8 +62,8 @@ const buildUpiLine = (upiId, dairyName, amount) => {
  *
  * @param {object} params.bill        - bill document
  * @param {object} params.customer    - { name, phone }
- * @param {string} params.dairyName   - tenant.name (pass explicitly, don't rely on context here)
- * @param {string} [params.upiId]     - tenant UPI ID (optional — appends pay link if set)
+ * @param {string} params.dairyName   - tenant.name
+ * @param {string} [params.upiId]     - tenant UPI ID (optional)
  */
 export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
   const pending  = Math.max(0, Number(bill.totalAmount) - Number(bill.amountPaid));
@@ -91,7 +104,7 @@ export const buildWhatsAppMessage = ({ bill, customer, dairyName, upiId }) => {
  * @param {string} params.customerName
  * @param {string} params.dairyName
  * @param {number} params.outstanding
- * @param {string} [params.upiId]       - optional — appends pay link if set
+ * @param {string} [params.upiId]       - optional
  */
 export const buildReminderMessage = ({ customerName, dairyName, outstanding, upiId }) => {
   const dairy  = dairyName || "Dairy";
@@ -138,9 +151,6 @@ export const openWhatsApp = ({ phone, message }) => {
 /**
  * One-shot: build bill message + open WhatsApp.
  * Used in BillViewModal.
- *
- * Pass upiId from useTenant() at the call site:
- *   shareOnWhatsApp({ bill, customer, dairyName: tenant?.name, upiId: tenant?.upiId })
  */
 export const shareOnWhatsApp = ({ bill, customer, dairyName, upiId }) => {
   const message = buildWhatsAppMessage({ bill, customer, dairyName, upiId });
