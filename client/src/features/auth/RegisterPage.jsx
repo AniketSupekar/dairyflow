@@ -1,255 +1,182 @@
 /**
  * features/auth/RegisterPage.jsx
  *
- * Self-serve signup for new dairy owners.
- * Creates their Tenant + admin account in one step.
- * On success → auto-login → redirect to dashboard.
- *
- * Route: /register (public, add to AppRouter.jsx)
+ * Self-serve dairy owner signup.
+ * On success: auto-login via AuthContext.login() + redirect to /admin
+ * Already-logged-in users are bounced away by PublicOnlyRoute before reaching here.
  */
 
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { registerTenant } from "../../api/auth.api";
-import { useAuth } from "../../context/AuthContext"; // your existing auth context
+import { AuthContext } from "../../context/AuthContext";
+import api from "../../api/axios";
+import logo from "../../assets/logo.png";
 import {
-  Building2, User, Phone, Mail, Lock, Eye, EyeOff,
-  AlertCircle, Loader2, Check,
+  Building2, User, Phone, Mail, Lock,
+  Eye, EyeOff, AlertCircle, CheckCircle2, ArrowRight,
 } from "lucide-react";
 
-const Field = ({ label, icon: Icon, rightSlot, error, ...props }) => (
-  <div className="space-y-1.5">
-    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-      {label}
-    </label>
-    <div className="relative">
-      {Icon && (
-        <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-      )}
-      <input
-        className={`w-full rounded-xl border bg-gray-50 focus:bg-white py-2.5 text-sm
-          text-gray-800 placeholder-gray-400 outline-none transition
-          focus:ring-1 focus:ring-gray-900 focus:border-gray-900
-          ${Icon ? "pl-9" : "pl-3"}
-          ${rightSlot ? "pr-10" : "pr-3"}
-          ${error ? "border-red-300" : "border-gray-200"}`}
-        {...props}
-      />
-      {rightSlot && (
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">{rightSlot}</div>
-      )}
-    </div>
-    {error && (
-      <p className="text-xs text-red-500 flex items-center gap-1">
-        <AlertCircle size={10} /> {error}
-      </p>
-    )}
-  </div>
-);
+const FIELDS = [
+  { name: "businessName", label: "Dairy / Business Name", placeholder: "e.g. Shree Krishna Dairy", icon: Building2, type: "text" },
+  { name: "ownerName",    label: "Your Full Name",         placeholder: "e.g. Ramesh Patil",        icon: User,      type: "text" },
+  { name: "phone",        label: "Mobile Number",          placeholder: "10-digit mobile number",   icon: Phone,     type: "text", inputMode: "numeric" },
+  { name: "email",        label: "Email Address",          placeholder: "yourname@email.com",       icon: Mail,      type: "email" },
+];
 
 export default function RegisterPage() {
-  const navigate = useNavigate();
-  const { login: authLogin } = useAuth(); // your existing AuthContext login method
+  const { login } = useContext(AuthContext);
+  const navigate  = useNavigate();
 
-  const [form, setForm] = useState({
-    businessName: "",
-    ownerName:    "",
-    phone:        "",
-    email:        "",
-    password:     "",
-    confirm:      "",
-  });
-  const [showPassword, setShowPassword] = useState(false);
-  const [errors,  setErrors]  = useState({});
+  const [form, setForm]       = useState({ businessName: "", ownerName: "", phone: "", email: "", password: "" });
+  const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [apiErr,  setApiErr]  = useState("");
+  const [error, setError]     = useState("");
   const [success, setSuccess] = useState(false);
 
-  const set = (field) => (e) => {
-    setForm((p) => ({ ...p, [field]: e.target.value }));
-    if (errors[field]) setErrors((p) => ({ ...p, [field]: "" }));
-    setApiErr("");
-  };
-
-  const validate = () => {
-    const e = {};
-    if (!form.businessName.trim()) e.businessName = "Business name is required";
-    if (!form.ownerName.trim())    e.ownerName    = "Owner name is required";
-    if (!/^[6-9]\d{9}$/.test(form.phone))
-      e.phone = "Enter a valid 10-digit mobile number";
-    if (!/^\S+@\S+\.\S+$/.test(form.email))
-      e.email = "Enter a valid email address";
-    if (form.password.length < 8)
-      e.password = "Password must be at least 8 characters";
-    if (form.password !== form.confirm)
-      e.confirm = "Passwords do not match";
-    setErrors(e);
-    return Object.keys(e).length === 0;
+  const handleChange = (e) => {
+    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+    if (error) setError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    setError("");
+
+    // Basic client-side guard
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters."); return;
+    }
+    if (!/^[6-9]\d{9}$/.test(form.phone)) {
+      setError("Enter a valid 10-digit Indian mobile number."); return;
+    }
 
     setLoading(true);
-    setApiErr("");
-
     try {
-      const res = await registerTenant({
-        businessName: form.businessName.trim(),
-        ownerName:    form.ownerName.trim(),
-        phone:        form.phone.trim(),
-        email:        form.email.toLowerCase().trim(),
-        password:     form.password,
-      });
+      const res  = await api.post("/auth/register", form);
+      const { token } = res.data.data;
 
-      const { token, user } = res.data.data;
-
-      // Log them in immediately via your existing AuthContext
-      authLogin(token, user);
       setSuccess(true);
 
-      // Brief success moment, then redirect
-      setTimeout(() => navigate("/admin/dashboard"), 1000);
+      // Auto-login — no second step
+      setTimeout(() => {
+        login(token);
+        navigate("/admin", { replace: true });
+      }, 800);
 
     } catch (err) {
-      setApiErr(err?.response?.data?.message || "Registration failed. Please try again.");
+      setError(err.response?.data?.message || "Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md space-y-6">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-sm">
 
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto">
-            <Building2 size={22} className="text-white" />
+        {/* Brand */}
+        <div className="flex flex-col items-center mb-8">
+          <img src={logo} alt="DairyFlow" className="w-14 h-14 rounded-2xl object-cover shadow-md mb-4" />
+          <h1 className="text-lg font-bold text-gray-900">DairyFlow</h1>
+          <p className="text-xs text-gray-500 mt-1">Dairy Operations Platform</p>
+        </div>
+
+        <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-7">
+          <div className="mb-6 text-center">
+            <h2 className="text-xl font-bold text-gray-900">Start free trial</h2>
+            <p className="text-sm text-gray-500 mt-1">14 days free · No credit card required</p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Start your free trial</h1>
-          <p className="text-sm text-gray-500">
-            Set up your dairy in 60 seconds. No credit card needed.
-          </p>
-        </div>
 
-        {/* Form */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-          <form onSubmit={handleSubmit} className="space-y-4">
-
-            <Field
-              label="Dairy / Business Name"
-              icon={Building2}
-              value={form.businessName}
-              onChange={set("businessName")}
-              placeholder="Siddhivinayak Dairy"
-              error={errors.businessName}
-            />
-            <Field
-              label="Your Name"
-              icon={User}
-              value={form.ownerName}
-              onChange={set("ownerName")}
-              placeholder="Ramesh Patil"
-              error={errors.ownerName}
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="Phone"
-                icon={Phone}
-                value={form.phone}
-                onChange={set("phone")}
-                placeholder="9876543210"
-                maxLength={10}
-                error={errors.phone}
-              />
-              <Field
-                label="Email"
-                icon={Mail}
-                type="email"
-                value={form.email}
-                onChange={set("email")}
-                placeholder="you@email.com"
-                error={errors.email}
-              />
-            </div>
-
-            <Field
-              label="Password"
-              icon={Lock}
-              type={showPassword ? "text" : "password"}
-              value={form.password}
-              onChange={set("password")}
-              placeholder="Min. 8 characters"
-              error={errors.password}
-              rightSlot={
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              }
-            />
-            <Field
-              label="Confirm Password"
-              icon={Lock}
-              type={showPassword ? "text" : "password"}
-              value={form.confirm}
-              onChange={set("confirm")}
-              placeholder="Repeat your password"
-              error={errors.confirm}
-            />
-
-            {apiErr && (
-              <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50
-                border border-red-100 px-4 py-3 rounded-xl">
-                <AlertCircle size={14} className="flex-shrink-0" />
-                {apiErr}
+          {/* Success state */}
+          {success && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
+                <CheckCircle2 size={28} className="text-green-500" />
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || success}
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl
-                text-sm font-semibold transition disabled:opacity-70
-                ${success
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-900 hover:bg-black text-white"}`}
-            >
-              {loading  ? <><Loader2 size={15} className="animate-spin" /> Creating account…</> :
-               success  ? <><Check size={15} /> Account created! Redirecting…</> :
-               "Create free account"}
-            </button>
-
-          </form>
-        </div>
-
-        {/* Trial info */}
-        <div className="bg-amber-50 border border-amber-100 rounded-2xl px-5 py-4 space-y-2">
-          <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">
-            What you get free for 30 days
-          </p>
-          {["Unlimited lanes and customers", "Bill generation and PDF download",
-            "Payment tracking", "Daily delivery summary"].map((item) => (
-            <div key={item} className="flex items-center gap-2 text-xs text-amber-700">
-              <Check size={11} className="flex-shrink-0 text-amber-600" />
-              {item}
+              <p className="text-sm font-bold text-gray-900">Account created!</p>
+              <p className="text-xs text-gray-500">Taking you to your dashboard…</p>
             </div>
-          ))}
+          )}
+
+          {!success && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+
+              {error && (
+                <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 text-red-700 px-3.5 py-3 rounded-xl text-sm">
+                  <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+                  {error}
+                </div>
+              )}
+
+              {/* Text fields */}
+              {FIELDS.map(({ name, label, placeholder, icon: Icon, type, inputMode }) => (
+                <div key={name} className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">{label}</label>
+                  <div className="relative">
+                    <Icon size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input
+                      name={name} type={type} inputMode={inputMode}
+                      value={form[name]} onChange={handleChange}
+                      placeholder={placeholder} required
+                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-gray-50
+                        focus:bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900
+                        outline-none text-sm text-gray-800 placeholder-gray-400 transition"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {/* Password */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-600 uppercase tracking-wide">Password</label>
+                <div className="relative">
+                  <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    name="password" type={showPass ? "text" : "password"}
+                    value={form.password} onChange={handleChange}
+                    placeholder="Min. 8 characters" required minLength={8}
+                    className="w-full pl-10 pr-11 py-3 border border-gray-200 rounded-xl bg-gray-50
+                      focus:bg-white focus:border-gray-900 focus:ring-1 focus:ring-gray-900
+                      outline-none text-sm text-gray-800 placeholder-gray-400 transition"
+                  />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
+                    {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                By registering you agree to our terms of service. Your 14-day free trial starts immediately.
+              </p>
+
+              <button type="submit" disabled={loading}
+                className="w-full flex items-center justify-center gap-2 bg-gray-900 hover:bg-black
+                  text-white py-3 rounded-xl text-sm font-bold transition disabled:opacity-60 mt-1">
+                {loading ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Creating account…
+                  </>
+                ) : (
+                  <>Create account <ArrowRight size={15} /></>
+                )}
+              </button>
+            </form>
+          )}
         </div>
 
-        <p className="text-center text-xs text-gray-400">
+        <p className="text-center text-sm text-gray-500 mt-5">
           Already have an account?{" "}
-          <Link to="/login" className="font-semibold text-gray-700 hover:text-gray-900">
-            Sign in
-          </Link>
+          <Link to="/login" className="font-semibold text-gray-900 hover:underline">Sign in</Link>
         </p>
 
+        <p className="text-center text-gray-400 text-xs mt-4">
+          © {new Date().getFullYear()} DairyFlow. All rights reserved.
+        </p>
       </div>
     </div>
   );
