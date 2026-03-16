@@ -21,9 +21,10 @@ const userRoutes     = require("./modules/users/user.routes");
 const tenantRoutes   = require("./modules/tenants/tenant.routes");
 const payRoutes      = require("./modules/pay/pay.routes");
 
-const authMiddleware   = require("./middleware/auth.middleware");
-const tenantMiddleware = require("./middleware/tenant.middleware");
-const errorMiddleware  = require("./middleware/error.middleware");
+const authMiddleware         = require("./middleware/auth.middleware");
+const tenantMiddleware       = require("./middleware/tenant.middleware");
+const subscriptionMiddleware = require("./middleware/subscription.middleware");
+const errorMiddleware        = require("./middleware/error.middleware");
 const { authLimiter, apiLimiter } = require("./middleware/rateLimit.middleware");
 
 const app = express();
@@ -80,8 +81,13 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/pay",  payRoutes);                // UPI redirect — must stay public
 
-// ── Protected routes (auth + tenant + rate limit applied per route) ───────────
-const protect = [authMiddleware, tenantMiddleware, apiLimiter];
+// ── Protected routes ──────────────────────────────────────────────────────────
+// Order matters:
+//   1. authMiddleware       → validates JWT, sets req.userId + req.tenantId + req.role
+//   2. tenantMiddleware     → loads Tenant doc into req.tenant (one DB call per request)
+//   3. apiLimiter           → rate limit
+//   4. subscriptionMiddleware → blocks mutations if trial/plan expired (read-only mode)
+const protect = [authMiddleware, tenantMiddleware, apiLimiter, subscriptionMiddleware];
 
 app.use("/api/tenant",     protect, tenantRoutes);
 app.use("/api/deliveries", protect, deliveryRoutes);
