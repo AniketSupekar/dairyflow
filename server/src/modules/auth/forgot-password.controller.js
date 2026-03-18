@@ -3,17 +3,6 @@
  *
  * POST /api/auth/forgot-password
  * Body: { email }
- *
- * Flow:
- *   1. Find tenant by email
- *   2. Find admin user for that tenant
- *   3. Generate crypto token → store hashed on user (expires in 1 hour)
- *   4. Send reset email via Resend with link containing raw token
- *
- * Security:
- *   - Always returns 200 even if email not found (prevents email enumeration)
- *   - Token is hashed in DB — raw token only in email
- *   - Token expires in 1 hour
  */
 
 const crypto       = require("crypto");
@@ -26,6 +15,10 @@ const env          = require("../../config/env");
 
 const resend = new Resend(env.RESEND_API_KEY);
 
+// Safe message — always returned regardless of whether email exists
+// Prevents email enumeration attacks
+const SAFE_MESSAGE = "If an account with this email exists, a reset link has been sent.";
+
 exports.forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
@@ -33,19 +26,14 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "Email is required" });
   }
 
-  // Always return success — never reveal if email exists (security best practice)
-  const SAFE_RESPONSE = successResponse(
-    res, "If an account with this email exists, a reset link has been sent."
-  );
-
   const tenant = await Tenant.findOne({ email: email.toLowerCase().trim() }).lean();
-  if (!tenant) return SAFE_RESPONSE;
+  if (!tenant) return successResponse(res, SAFE_MESSAGE);
 
   const user = await User.findOne({ tenantId: tenant._id, role: "ADMIN", isActive: true })
     .select("+resetToken +resetTokenExpiry");
-  if (!user) return SAFE_RESPONSE;
+  if (!user) return successResponse(res, SAFE_MESSAGE);
 
-  // Generate raw token — send this in email
+  // Generate raw token — send this in email, store hashed in DB
   const rawToken    = crypto.randomBytes(32).toString("hex");
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
@@ -83,14 +71,13 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
       `,
     });
   } catch (emailErr) {
-    // Log but don't expose error — user still gets safe response
     console.error("Reset email send failed:", emailErr);
-    // Clear token since email failed
+    // Clear token since email failed — don't leave a dangling token
     user.resetToken       = null;
     user.resetTokenExpiry = null;
     await user.save();
     return res.status(500).json({ success: false, message: "Failed to send reset email. Please try again." });
   }
 
-  return SAFE_RESPONSE;
+  return successResponse(res, SAFE_MESSAGE);
 });
