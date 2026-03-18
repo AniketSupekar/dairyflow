@@ -42,7 +42,7 @@ const AdminLayout = () => {
 
   const handleLogout = () => { setConfirmLogout(false); logout(); };
 
-  const businessName = tenant?.businessName || "Dairy";
+  const businessName = tenant?.businessName || "DairyFlow";
   const logoSrc      = tenant?.logoUrl      || defaultLogo;
 
   const SidebarContent = ({ onNav }) => (
