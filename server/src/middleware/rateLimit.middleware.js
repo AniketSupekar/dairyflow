@@ -4,7 +4,10 @@
  * Rate limiting presets. Applied per-route, not globally,
  * so normal API usage is never affected.
  *
- * Requires: npm install express-rate-limit
+ * Vercel/Railway note:
+ *   app.set("trust proxy", 1) in app.js handles X-Forwarded-For trust.
+ *   validate.xForwardedForHeader: false silences the secondary warning
+ *   about the Forwarded header which Vercel also sends.
  */
 
 const rateLimit = require("express-rate-limit");
@@ -13,10 +16,11 @@ const createLimiter = ({ windowMinutes, max, message }) =>
   rateLimit({
     windowMs:               windowMinutes * 60 * 1000,
     max,
-    standardHeaders:        true,  // RateLimit-* headers
+    standardHeaders:        true,
     legacyHeaders:          false,
     message:                { success: false, message },
     skipSuccessfulRequests: false,
+    validate:               { xForwardedForHeader: false }, // silence Vercel proxy warning
   });
 
 // Auth — strict. Prevents brute force on login/register.

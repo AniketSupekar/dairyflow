@@ -29,6 +29,11 @@ const { authLimiter, apiLimiter } = require("./middleware/rateLimit.middleware")
 
 const app = express();
 
+// ── Trust proxy — required for Vercel/Railway deployments ────────────────────
+// Vercel sits behind a proxy and sends X-Forwarded-For headers.
+// Without this, express-rate-limit throws ValidationError and crashes requests.
+app.set("trust proxy", 1);
+
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet());
 
