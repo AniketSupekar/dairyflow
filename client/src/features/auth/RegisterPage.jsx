@@ -84,7 +84,7 @@ export default function RegisterPage() {
         <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-7">
           <div className="mb-6 text-center">
             <h2 className="text-xl font-bold text-gray-900">Start free trial</h2>
-            <p className="text-sm text-gray-500 mt-1">14 days free · No credit card required</p>
+            <p className="text-sm text-gray-500 mt-1">30 days free · No credit card required</p>
           </div>
 
           {/* Success state */}
@@ -147,7 +147,7 @@ export default function RegisterPage() {
               </div>
 
               <p className="text-[11px] text-gray-400 leading-relaxed">
-                By registering you agree to our terms of service. Your 14-day free trial starts immediately.
+                By registering you agree to our terms of service. Your 30-day free trial starts immediately.
               </p>
 
               <button type="submit" disabled={loading}
