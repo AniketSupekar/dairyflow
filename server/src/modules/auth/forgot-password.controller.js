@@ -51,7 +51,7 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
 
   user.resetToken       = hashedToken;
   user.resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-  await user.save({ validateBeforeSave: false });
+  await user.save();
 
   const resetUrl = `${env.CLIENT_URL}/reset-password?token=${rawToken}`;
 
@@ -88,7 +88,7 @@ exports.forgotPassword = asyncHandler(async (req, res) => {
     // Clear token since email failed
     user.resetToken       = null;
     user.resetTokenExpiry = null;
-    await user.save({ validateBeforeSave: false });
+    await user.save();
     return res.status(500).json({ success: false, message: "Failed to send reset email. Please try again." });
   }
 
