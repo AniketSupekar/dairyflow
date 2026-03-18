@@ -1,4 +1,4 @@
-# DairyFlow 🥛
+# DairyFlow 
 
 > **Dairy Operations Platform** — A multi-tenant SaaS application that digitizes the complete workflow of small to medium dairy businesses in India.
 
