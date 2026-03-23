@@ -1,18 +1,27 @@
 /**
  * middleware/tenant.middleware.js
  *
- * Loads the full tenant document into req.tenant on every protected request.
- * Controllers, PDF builder, and any util that needs dairy info reads from
- * req.tenant — zero hardcoded dairy values anywhere in the codebase.
+ * Loads tenant into req.tenant on every protected request.
+ * Uses field projection — only fetches what controllers actually need.
+ * Smaller document = faster network transfer from Atlas + less memory.
  *
- * Placement: add AFTER authMiddleware in app.js (authMiddleware sets req.tenantId).
+ * Fields included:
+ *   - Core identity (name, contactName, phone, email, address)
+ *   - Branding (logoUrl, invoicePrefix, upiId) — needed for PDFs + WhatsApp
+ *   - Subscription (plan, trialEndsAt, isActive) — needed for gating
  *
- * Future: add Redis cache here — `await redis.get(tenantId)` before DB hit.
- * Zero controller changes needed when that happens.
+ * Fields excluded:
+ *   - logoPublicId — only needed in tenant.controller.js for Cloudinary deletion
+ *     that controller does its own findById() so no issue
  */
 
 const Tenant = require("../modules/tenants/tenant.model");
 const { errorResponse } = require("../utils/response.util");
+
+// Only fetch fields that controllers + middleware actually use
+// logoPublicId excluded — tenant.controller fetches it directly when needed
+const TENANT_PROJECTION =
+  "name contactName phone email address logoUrl invoicePrefix upiId plan trialEndsAt isActive";
 
 const tenantMiddleware = async (req, res, next) => {
   try {
@@ -20,7 +29,10 @@ const tenantMiddleware = async (req, res, next) => {
       return errorResponse(res, "Tenant context missing from token", 401);
     }
 
-    const tenant = await Tenant.findById(req.tenantId).lean();
+    const tenant = await Tenant
+      .findById(req.tenantId)
+      .select(TENANT_PROJECTION)
+      .lean();
 
     if (!tenant) {
       return errorResponse(res, "Tenant account not found", 404);
