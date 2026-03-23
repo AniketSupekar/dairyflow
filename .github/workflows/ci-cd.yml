@@ -1,4 +1,4 @@
-name: CI / CD — Siddhivinayak Dairy
+name: CI / CD — DairyFlow
 
 on:
   push:
