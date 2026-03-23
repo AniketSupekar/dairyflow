@@ -32,7 +32,7 @@ jobs:
           NODE_ENV: development
           MONGO_URI: mongodb+srv://dairyAdmin:efJ2NnHU0nftDRjd@dairy-app-cluster.aa77xs3.mongodb.net/dairy-app?retryWrites=true&w=majority
           JWT_SECRET: 029c49c9f1d5bf2e0e8925504bb55a9f
-          CLIENT_URL: https://dairy-app-live.vercel.app
+          CLIENT_URL: https://dairyflow-live.vercel.app
           PORT: 5000
 
       - name: Install client dependencies
