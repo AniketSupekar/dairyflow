@@ -1,12 +1,7 @@
 {
   "rewrites": [
-    {
-      "source": "/pay.html",
-      "destination": "/pay.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/pay.html",    "destination": "/pay.html"    },
+    { "source": "/change.html", "destination": "/change.html" },
+    { "source": "/(.*)",        "destination": "/index.html"  }
   ]
 }

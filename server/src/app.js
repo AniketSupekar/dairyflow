@@ -20,6 +20,7 @@ const laneRoutes     = require("./modules/lanes/lane.routes");
 const userRoutes     = require("./modules/users/user.routes");
 const tenantRoutes   = require("./modules/tenants/tenant.routes");
 const payRoutes      = require("./modules/pay/pay.routes");
+const deliveryDefaultsRoutes = require("./modules/deliveryDefaults/deliveryDefaults.routes");
 
 const authMiddleware         = require("./middleware/auth.middleware");
 const tenantMiddleware       = require("./middleware/tenant.middleware");
@@ -84,7 +85,7 @@ app.get("/health", (_req, res) => {
 
 // ── Public routes (NO auth) ───────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/pay",  payRoutes);                // UPI redirect — must stay public
+app.use("/api/pay",  payRoutes);                // UPI redirect — must stay public 
 
 // ── Protected routes ──────────────────────────────────────────────────────────
 // Order matters:
@@ -95,6 +96,7 @@ app.use("/api/pay",  payRoutes);                // UPI redirect — must stay pu
 const protect = [authMiddleware, tenantMiddleware, apiLimiter, subscriptionMiddleware];
 
 app.use("/api/tenant",     protect, tenantRoutes);
+app.use("/api/delivery-defaults", protect, deliveryDefaultsRoutes); 
 app.use("/api/deliveries", protect, deliveryRoutes);
 app.use("/api/payments",   protect, paymentRoutes);
 app.use("/api/billing",    protect, billingRoutes);

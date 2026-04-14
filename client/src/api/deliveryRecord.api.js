@@ -1,19 +1,16 @@
 import axios from "./axios";
 
-export const getDeliveriesByDateAndLane = (date, laneId) => {
-  return axios.get(
-    `/deliveries?date=${date}&laneId=${laneId}`
-  );
-};
+export const getDeliveriesByDateAndLane = (date, laneId) =>
+  axios.get(`/deliveries?date=${date}&laneId=${laneId}`);
 
-export const upsertDeliveryRecord = (data) => {
-  return axios.post("/deliveries", data);
-};
+export const upsertDeliveryRecord = (data) =>
+  axios.post("/deliveries", data);
 
-export const updateDeliveryRecord = (id, data) => {
-  return axios.put(`/deliveries/${id}`, data);
-};
+export const updateDeliveryRecord = (id, data) =>
+  axios.put(`/deliveries/${id}`, data);
 
-export const deleteDeliveryRecord = (id) => {
-  return axios.delete(`/deliveries/${id}`);
-};
+export const deleteDeliveryRecord = (id) =>
+  axios.delete(`/deliveries/${id}`);
+
+export const generateDefaultRecords = (laneId, date) =>
+  axios.post("/delivery-defaults/generate", { laneId, date });
