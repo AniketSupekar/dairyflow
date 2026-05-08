@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useTenant } from "../hooks/useTenant";
 import {
@@ -8,8 +8,6 @@ import {
   TrendingDown, Zap, BarChart2, Settings,
 } from "lucide-react";
 import defaultLogo from "../assets/logo.png";
-import TrialBanner from "../components/TrialBanner";
-import SubscriptionExpiredModal from "../components/SubscriptionExpiredModal";
 
 const navItems = [
   { name: "Dashboard",        to: "/admin",                  icon: LayoutDashboard, end: true },
@@ -30,18 +28,9 @@ const AdminLayout = () => {
   const { tenant }                    = useTenant();
   const [mobileOpen, setMobileOpen]   = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
-  const [showExpired, setShowExpired] = useState(false);
   const location = useLocation();
 
-  // Listen for subscription expired events from axios interceptor
-  useEffect(() => {
-    const handler = () => setShowExpired(true);
-    window.addEventListener("subscriptionExpired", handler);
-    return () => window.removeEventListener("subscriptionExpired", handler);
-  }, []);
-
   const handleLogout = () => { setConfirmLogout(false); logout(); };
-
   const businessName = tenant?.businessName || "DairyFlow";
   const logoSrc      = tenant?.logoUrl      || defaultLogo;
 
@@ -63,16 +52,12 @@ const AdminLayout = () => {
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Operations</p>
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = item.end
-            ? location.pathname === item.to
-            : location.pathname.startsWith(item.to);
+          const isActive = item.end ? location.pathname === item.to : location.pathname.startsWith(item.to);
           return (
             <NavLink key={item.to} to={item.to} end={item.end} onClick={onNav}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                transition-all group
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
                 ${isActive ? "bg-gray-900 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"}`}>
-              <Icon size={16} strokeWidth={isActive ? 2.5 : 2}
-                className={isActive ? "text-white" : "text-gray-400 group-hover:text-gray-600"} />
+              <Icon size={16} strokeWidth={isActive ? 2.5 : 2} className={isActive ? "text-white" : "text-gray-400 group-hover:text-gray-600"} />
               <span className="flex-1">{item.name}</span>
               {isActive && <ChevronRight size={12} className="text-white/60" />}
             </NavLink>
@@ -99,8 +84,7 @@ const AdminLayout = () => {
           <Settings size={16} className="flex-shrink-0" /> Settings
         </NavLink>
         <button onClick={() => setConfirmLogout(true)}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-            text-red-500 hover:bg-red-50 hover:text-red-600 transition-all">
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-all">
           <LogOut size={16} /> Sign out
         </button>
       </div>
@@ -109,48 +93,34 @@ const AdminLayout = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-
-      {/* Desktop */}
       <div className="hidden md:flex min-h-screen">
         <aside className="w-60 bg-white border-r border-gray-100 flex flex-col shadow-sm flex-shrink-0 sticky top-0 h-screen overflow-y-auto">
           <SidebarContent onNav={undefined} />
         </aside>
-        <div className="flex-1 flex flex-col min-w-0">
-          <TrialBanner />
-          <main className="flex-1 p-10"><Outlet /></main>
-        </div>
+        <main className="flex-1 p-10 min-w-0"><Outlet /></main>
       </div>
 
-      {/* Mobile */}
       <div className="md:hidden">
-        <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-100
-          px-4 py-3 flex items-center justify-between z-40 shadow-sm">
-          <button onClick={() => setMobileOpen(true)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
+        <div className="fixed top-0 left-0 right-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between z-40 shadow-sm">
+          <button onClick={() => setMobileOpen(true)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
             <Menu size={18} className="text-gray-600" />
           </button>
           <div className="flex items-center gap-2">
-            <img src={logoSrc} alt={businessName} className="w-7 h-7 rounded-lg object-contain bg-gray-50"
-              onError={(e) => { e.currentTarget.src = defaultLogo; }} />
+            <img src={logoSrc} alt={businessName} className="w-7 h-7 rounded-lg object-contain bg-gray-50" onError={(e) => { e.currentTarget.src = defaultLogo; }} />
             <span className="text-sm font-bold text-gray-900 max-w-[160px] truncate">{businessName}</span>
           </div>
           <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100">
             <span className="text-xs font-bold text-gray-600">{(user?.name || user?.phone || "A")[0].toUpperCase()}</span>
           </div>
         </div>
-        <div className="pt-14">
-          <TrialBanner />
-        </div>
-        <main className="p-5"><Outlet /></main>
+        <main className="pt-16 p-5"><Outlet /></main>
       </div>
 
-      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
           <div className="relative w-64 bg-white h-full shadow-2xl">
-            <button onClick={() => setMobileOpen(false)}
-              className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
+            <button onClick={() => setMobileOpen(false)} className="absolute top-4 right-4 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition">
               <X size={15} className="text-gray-500" />
             </button>
             <SidebarContent onNav={() => setMobileOpen(false)} />
@@ -158,10 +128,6 @@ const AdminLayout = () => {
         </div>
       )}
 
-      {/* Subscription expired modal */}
-      {showExpired && <SubscriptionExpiredModal onClose={() => setShowExpired(false)} />}
-
-      {/* Logout confirm */}
       {confirmLogout && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
@@ -171,10 +137,8 @@ const AdminLayout = () => {
             <h3 className="text-base font-bold text-gray-900">Sign out?</h3>
             <p className="text-sm text-gray-600 mt-1">You'll need to log in again to access the dashboard.</p>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setConfirmLogout(false)}
-                className="flex-1 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 transition text-gray-700">Cancel</button>
-              <button onClick={handleLogout}
-                className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-red-500 hover:bg-red-600 text-white transition">Sign out</button>
+              <button onClick={() => setConfirmLogout(false)} className="flex-1 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 hover:bg-gray-50 transition text-gray-700">Cancel</button>
+              <button onClick={handleLogout} className="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-red-500 hover:bg-red-600 text-white transition">Sign out</button>
             </div>
           </div>
         </div>
