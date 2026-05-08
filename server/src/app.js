@@ -24,7 +24,6 @@ const deliveryDefaultsRoutes = require("./modules/deliveryDefaults/deliveryDefau
 
 const authMiddleware         = require("./middleware/auth.middleware");
 const tenantMiddleware       = require("./middleware/tenant.middleware");
-const subscriptionMiddleware = require("./middleware/subscription.middleware");
 const errorMiddleware        = require("./middleware/error.middleware");
 const { authLimiter, apiLimiter } = require("./middleware/rateLimit.middleware");
 
@@ -93,7 +92,7 @@ app.use("/api/pay",  payRoutes);                // UPI redirect — must stay pu
 //   2. tenantMiddleware     → loads Tenant doc into req.tenant (one DB call per request)
 //   3. apiLimiter           → rate limit
 //   4. subscriptionMiddleware → blocks mutations if trial/plan expired (read-only mode)
-const protect = [authMiddleware, tenantMiddleware, apiLimiter, subscriptionMiddleware];
+const protect = [authMiddleware, tenantMiddleware, apiLimiter];
 
 app.use("/api/tenant",     protect, tenantRoutes);
 app.use("/api/delivery-defaults", protect, deliveryDefaultsRoutes); 
