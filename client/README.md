@@ -1,4 +1,4 @@
-# DairyFlow — Frontend
+# DairyFlow : Frontend
 
 React + Vite SPA for the DairyFlow dairy operations platform.
 
