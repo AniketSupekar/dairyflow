@@ -1,4 +1,4 @@
-# DairyFlow — Backend
+# DairyFlow : Backend
 
 Express.js REST API serving the DairyFlow multi-tenant SaaS platform.
 
