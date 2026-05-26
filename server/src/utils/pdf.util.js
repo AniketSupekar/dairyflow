@@ -50,7 +50,6 @@ const fetchImageBuffer = (url) =>
 const loadLogo = async (logoUrl) => {
   try {
     if (logoUrl) return await fetchImageBuffer(logoUrl);
-    if (fs.existsSync(DEFAULT_LOGO_PATH)) return fs.readFileSync(DEFAULT_LOGO_PATH);
     return null;
   } catch { return null; }
 };
