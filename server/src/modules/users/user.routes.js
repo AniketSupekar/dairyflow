@@ -2,17 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const authMiddleware = require("../../middleware/auth.middleware");
+const { adminOnly } = require("../../middleware/admin.middleware");
 const controller = require("./user.controller");
-
-const adminOnly = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({
-      success: false,
-      message: "Access denied",
-    });
-  }
-  next();
-};
 
 router.use(authMiddleware);
 router.use(adminOnly);
